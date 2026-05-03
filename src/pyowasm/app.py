@@ -18,6 +18,10 @@ if uploaded_file:
         # タスクの実行
         parser = FastaParserTask()
         result = parser.execute(fasta_data)
+
+        warnings = (result.metadata or {}).get("warnings", [])
+        for warning in warnings:
+            st.warning(warning)
         
         st.write(f"BioPythonを使用して {len(result.records)} 個の配列をパースしました。")
         
