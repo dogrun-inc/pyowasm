@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <title>Pyowasm Dev Preview</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.css"
+    />
+    <style>
+      /* 必要に応じてスタイルを調整 */
+      #root { margin-top: 2rem; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.js"></script>
+    <script>
+      const fastaParserCode = `from io import StringIO
+from Bio import SeqIO
+from pyowasm.models.schema import SequenceRecord, AnalysisResult
+from pyowasm.tasks.base import BaseTask
+
+class FastaParserTask(BaseTask):
+    """
+    BioPythonを使用してFASTA形式のデータをパースするタスク。
+    """
+
+    def execute(self, fasta_content: str) -> AnalysisResult:
+        """
+        FASTA文字列をパースし、SequenceRecordのリストを含むAnalysisResultを返す。
+        """
+        records = []
+        fasta_io = StringIO(fasta_content)
+        
+        for record in SeqIO.parse(fasta_io, "fasta"):
+            records.append(SequenceRecord(
+                id=str(record.id),
+                description=str(record.description),
+                sequence=str(record.seq),
+                length=len(record.seq)
+            ))
+            
+        return AnalysisResult(records=records)
+`;
+
+      const schemaCode = `from dataclasses import dataclass
+from typing import List, Optional
+
+@dataclass
+class SequenceRecord:
+    id: str
+    description: str
+    sequence: str
+    length: int
+
+@dataclass
+class AnalysisResult:
+    records: List[SequenceRecord]
+    metadata: Optional[dict] = None
+`;
+
+      const baseTaskCode = `from abc import ABC, abstractmethod
+from typing import Any
+from pyowasm.models.schema import AnalysisResult
+
+class BaseTask(ABC):
+    @abstractmethod
+    def execute(self, input_data: Any) -> AnalysisResult:
+        pass
+`;
+
+      const uiComponentsCode = `import streamlit as st
+from typing import List
+from pyowasm.models.schema import SequenceRecord
+
+def display_sequence_stats(records: List[SequenceRecord]) -> None:
+    st.subheader("解析結果")
+    col1, col2 = st.columns(2)
+    col1.metric("配列数", len(records))
+    col2.metric("実行環境", "ブラウザ (Wasm)")
+
+    if records:
+        lengths = [r.length for r in records]
+        st.bar_chart(lengths)
+
+def display_header() -> None:
+    st.title("🧬 Pyowasm")
+    st.caption("Python × WebAssembly × Bioinformatics")
+    st.markdown("### 🚀 ブラウザが次世代の解析プラットフォームになる\\n**Pyowasm** は、環境構築不要のバイオ解析環境です。")
+`;
+
+      const appCode = `import streamlit as st
+from pyowasm.ui.components import display_header, display_sequence_stats
+from pyowasm.tasks.local.fasta_parser import FastaParserTask
+
+st.set_page_config(page_title="Pyowasm", page_icon="🧬")
+
+display_header()
+
+uploaded_file = st.file_uploader("FASTAファイルをドロップ", type=["fasta"])
+
+if uploaded_file:
+    with st.status("Python (Wasm) で解析中...", expanded=True) as status:
+        fasta_data = uploaded_file.getvalue().decode("utf-8")
+        parser = FastaParserTask()
+        result = parser.execute(fasta_data)
+        st.write(f"BioPythonを使用して {len(result.records)} 個の配列をパースしました。")
+        status.update(label="解析完了!", state="complete", expanded=False)
+
+    st.divider()
+    display_sequence_stats(result.records)
+`;
+
+      stlite.mount(
+        {
+          requirements: ["biopython"],
+          entrypoint: "pyowasm/app.py",
+          files: {
+            "pyowasm/app.py": appCode,
+            "pyowasm/__init__.py": "",
+            "pyowasm/models/__init__.py": "",
+            "pyowasm/models/schema.py": schemaCode,
+            "pyowasm/tasks/__init__.py": "",
+            "pyowasm/tasks/base.py": baseTaskCode,
+            "pyowasm/tasks/local/__init__.py": "",
+            "pyowasm/tasks/local/fasta_parser.py": fastaParserCode,
+            "pyowasm/ui/__init__.py": "",
+            "pyowasm/ui/components.py": uiComponentsCode,
+          },
+        },
+        document.getElementById("root")
+      );
+    </script>
+  </body>
+</html>
