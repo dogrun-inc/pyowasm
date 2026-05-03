@@ -10,6 +10,8 @@ class SequenceRecord:
     description: str
     sequence: str
     length: int
+    gc_content: float = 0.0
+    base_composition: Optional[dict[str, int]] = None
 
 @dataclass
 class AnalysisResult:

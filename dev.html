@@ -12,7 +12,6 @@
       href="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.css"
     />
     <style>
-      /* 必要に応じてスタイルを調整 */
       #root { margin-top: 2rem; }
     </style>
   </head>
@@ -26,17 +25,9 @@ from pyowasm.models.schema import SequenceRecord, AnalysisResult
 from pyowasm.tasks.base import BaseTask
 
 class FastaParserTask(BaseTask):
-    """
-    BioPythonを使用してFASTA形式のデータをパースするタスク。
-    """
-
     def execute(self, fasta_content: str) -> AnalysisResult:
-        """
-        FASTA文字列をパースし、SequenceRecordのリストを含むAnalysisResultを返す。
-        """
         records = []
         fasta_io = StringIO(fasta_content)
-        
         for record in SeqIO.parse(fasta_io, "fasta"):
             records.append(SequenceRecord(
                 id=str(record.id),
@@ -44,7 +35,22 @@ class FastaParserTask(BaseTask):
                 sequence=str(record.seq),
                 length=len(record.seq)
             ))
-            
+        return AnalysisResult(records=records)
+`;
+
+      const sequenceAnalyzerCode = `from Bio.SeqUtils import gc_fraction
+from pyowasm.models.schema import SequenceRecord, AnalysisResult
+from pyowasm.tasks.base import BaseTask
+
+class SequenceAnalysisTask(BaseTask):
+    def execute(self, records: list[SequenceRecord]) -> AnalysisResult:
+        for record in records:
+            record.gc_content = gc_fraction(record.sequence) * 100
+            composition = {}
+            for base in set(record.sequence.upper()):
+                if base.isalpha():
+                    composition[base] = record.sequence.upper().count(base)
+            record.base_composition = composition
         return AnalysisResult(records=records)
 `;
 
@@ -57,6 +63,8 @@ class SequenceRecord:
     description: str
     sequence: str
     length: int
+    gc_content: float = 0.0
+    base_composition: Optional[dict[str, int]] = None
 
 @dataclass
 class AnalysisResult:
@@ -75,18 +83,34 @@ class BaseTask(ABC):
 `;
 
       const uiComponentsCode = `import streamlit as st
+import pandas as pd
 from typing import List
 from pyowasm.models.schema import SequenceRecord
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
-    st.subheader("解析結果")
-    col1, col2 = st.columns(2)
+    st.subheader("解析結果サマリー")
+    col1, col2, col3 = st.columns(3)
     col1.metric("配列数", len(records))
-    col2.metric("実行環境", "ブラウザ (Wasm)")
+    avg_len = sum(r.length for r in records) / len(records) if records else 0
+    col2.metric("平均長", f"{avg_len:.1f} bp")
+    avg_gc = sum(r.gc_content for r in records) / len(records) if records else 0
+    col3.metric("平均GC含有量", f"{avg_gc:.1f} %")
 
     if records:
+        st.divider()
+        st.subheader("詳細解析")
+        st.write("### 配列長の分布")
         lengths = [r.length for r in records]
         st.bar_chart(lengths)
+        st.write("### GC含有量の分布 (%)")
+        gc_contents = [r.gc_content for r in records]
+        st.line_chart(gc_contents)
+        if len(records) == 1:
+            st.write("### 塩基組成")
+            comp = records[0].base_composition
+            if comp:
+                df_comp = pd.DataFrame(list(comp.items()), columns=["Base", "Count"])
+                st.bar_chart(df_comp.set_index("Base"))
 
 def display_header() -> None:
     st.title("🧬 Pyowasm")
@@ -97,6 +121,7 @@ def display_header() -> None:
       const appCode = `import streamlit as st
 from pyowasm.ui.components import display_header, display_sequence_stats
 from pyowasm.tasks.local.fasta_parser import FastaParserTask
+from pyowasm.tasks.local.sequence_analyzer import SequenceAnalysisTask
 
 st.set_page_config(page_title="Pyowasm", page_icon="🧬")
 
@@ -108,17 +133,19 @@ if uploaded_file:
     with st.status("Python (Wasm) で解析中...", expanded=True) as status:
         fasta_data = uploaded_file.getvalue().decode("utf-8")
         parser = FastaParserTask()
-        result = parser.execute(fasta_data)
-        st.write(f"BioPythonを使用して {len(result.records)} 個の配列をパースしました。")
+        parse_result = parser.execute(fasta_data)
+        st.write(f"BioPythonを使用して {len(parse_result.records)} 個の配列をパースしました。")
+        analyzer = SequenceAnalysisTask()
+        analysis_result = analyzer.execute(parse_result.records)
         status.update(label="解析完了!", state="complete", expanded=False)
 
     st.divider()
-    display_sequence_stats(result.records)
+    display_sequence_stats(analysis_result.records)
 `;
 
       stlite.mount(
         {
-          requirements: ["biopython"],
+          requirements: ["biopython", "pandas"],
           entrypoint: "pyowasm/app.py",
           files: {
             "pyowasm/app.py": appCode,
@@ -129,6 +156,7 @@ if uploaded_file:
             "pyowasm/tasks/base.py": baseTaskCode,
             "pyowasm/tasks/local/__init__.py": "",
             "pyowasm/tasks/local/fasta_parser.py": fastaParserCode,
+            "pyowasm/tasks/local/sequence_analyzer.py": sequenceAnalyzerCode,
             "pyowasm/ui/__init__.py": "",
             "pyowasm/ui/components.py": uiComponentsCode,
           },

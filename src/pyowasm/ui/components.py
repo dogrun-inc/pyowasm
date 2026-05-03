@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 from typing import List
 from ..models.schema import SequenceRecord
 
@@ -9,14 +10,37 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
     Args:
         records (List[SequenceRecord]): 表示対象の配列レコードリスト。
     """
-    st.subheader("解析結果")
-    col1, col2 = st.columns(2)
+    st.subheader("解析結果サマリー")
+    col1, col2, col3 = st.columns(3)
     col1.metric("配列数", len(records))
-    col2.metric("実行環境", "ブラウザ (Wasm)")
+    
+    avg_len = sum(r.length for r in records) / len(records) if records else 0
+    col2.metric("平均長", f"{avg_len:.1f} bp")
+    
+    avg_gc = sum(r.gc_content for r in records) / len(records) if records else 0
+    col3.metric("平均GC含有量", f"{avg_gc:.1f} %")
 
     if records:
+        st.divider()
+        st.subheader("詳細解析")
+        
+        # 配列長の分布
+        st.write("### 配列長の分布")
         lengths = [r.length for r in records]
         st.bar_chart(lengths)
+        
+        # GC含有量の分布
+        st.write("### GC含有量の分布 (%)")
+        gc_contents = [r.gc_content for r in records]
+        st.line_chart(gc_contents)
+        
+        # 個別レコードの塩基組成
+        if len(records) == 1:
+            st.write("### 塩基組成")
+            comp = records[0].base_composition
+            if comp:
+                df_comp = pd.DataFrame(list(comp.items()), columns=["Base", "Count"])
+                st.bar_chart(df_comp.set_index("Base"))
 
 def display_header() -> None:
     """
