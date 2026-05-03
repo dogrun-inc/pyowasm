@@ -21,11 +21,11 @@ class SequenceAnalysisTask(BaseTask):
             # GC含有量の計算
             record.gc_content = gc_fraction(record.sequence) * 100
             
-            # 塩基組成の計算
-            composition = {}
-            for base in set(record.sequence.upper()):
+            # 塩基組成の計算（1回走査で効率的に集計）
+            composition: dict[str, int] = {}
+            for base in record.sequence.upper():
                 if base.isalpha():
-                    composition[base] = record.sequence.upper().count(base)
+                    composition[base] = composition.get(base, 0) + 1
             record.base_composition = composition
             
         return AnalysisResult(records=records)

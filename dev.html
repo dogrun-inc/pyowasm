@@ -59,10 +59,10 @@ class SequenceAnalysisTask(BaseTask):
     def execute(self, records: list[SequenceRecord]) -> AnalysisResult:
         for record in records:
             record.gc_content = gc_fraction(record.sequence) * 100
-            composition = {}
-            for base in set(record.sequence.upper()):
+            composition: dict[str, int] = {}
+            for base in record.sequence.upper():
                 if base.isalpha():
-                    composition[base] = record.sequence.upper().count(base)
+                    composition[base] = composition.get(base, 0) + 1
             record.base_composition = composition
         return AnalysisResult(records=records)
 `;
