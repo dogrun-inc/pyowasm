@@ -1,6 +1,7 @@
 import streamlit as st
 from pyowasm.ui.components import display_header, display_sequence_stats
 from pyowasm.tasks.local.fasta_parser import FastaParserTask
+from pyowasm.tasks.local.sequence_analyzer import SequenceAnalysisTask
 
 st.set_page_config(page_title="Pyowasm", page_icon="🧬")
 
@@ -17,13 +18,18 @@ if uploaded_file:
         
         # タスクの実行
         parser = FastaParserTask()
-        result = parser.execute(fasta_data)
+        parse_result = parser.execute(fasta_data)
 
-        warnings = (result.metadata or {}).get("warnings", [])
+        warnings = (parse_result.metadata or {}).get("warnings", [])
         for warning in warnings:
             st.warning(warning)
         
-        st.write(f"BioPythonを使用して {len(result.records)} 個の配列をパースしました。")
+        st.write(f"BioPythonを使用して {len(parse_result.records)} 個の配列をパースしました。")
+
+        # 解析タスクの実行
+        st.write("統計情報を計算中...")
+        analyzer = SequenceAnalysisTask()
+        analysis_result = analyzer.execute(parse_result.records)
         
         # --- Step 2: 外部API/Wasmツールの実行（プレースホルダ） ---
         st.write("外部APIを確認中...")
@@ -32,4 +38,4 @@ if uploaded_file:
 
     # 結果の表示
     st.divider()
-    display_sequence_stats(result.records)
+    display_sequence_stats(analysis_result.records)
