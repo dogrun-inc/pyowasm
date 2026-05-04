@@ -25,7 +25,7 @@ from pyowasm.models.schema import SequenceRecord, AnalysisResult
 from pyowasm.tasks.base import BaseTask
 
 class FastaParserTask(BaseTask):
-    def execute(self, fasta_content: str) -> AnalysisResult:
+    def run(self, fasta_content: str) -> AnalysisResult:
         records = []
         warnings: list[str] = []
 
@@ -56,7 +56,7 @@ from pyowasm.models.schema import SequenceRecord, AnalysisResult
 from pyowasm.tasks.base import BaseTask
 
 class SequenceAnalysisTask(BaseTask):
-    def execute(self, records: list[SequenceRecord]) -> AnalysisResult:
+    def run(self, records: list[SequenceRecord]) -> AnalysisResult:
         for record in records:
             record.gc_content = gc_fraction(record.sequence) * 100
             composition: dict[str, int] = {}
@@ -91,7 +91,7 @@ from pyowasm.models.schema import AnalysisResult
 
 class BaseTask(ABC):
     @abstractmethod
-    def execute(self, input_data: Any) -> AnalysisResult:
+    def run(self, input_data: Any) -> AnalysisResult:
         pass
 `;
 
@@ -146,13 +146,13 @@ if uploaded_file:
     with st.status("Python (Wasm) で解析中...", expanded=True) as status:
         fasta_data = uploaded_file.getvalue().decode("utf-8")
         parser = FastaParserTask()
-        parse_result = parser.execute(fasta_data)
+        parse_result = parser.run(fasta_data)
         warnings = (parse_result.metadata or {}).get("warnings", [])
         for warning in warnings:
             st.warning(warning)
         st.write(f"BioPythonを使用して {len(parse_result.records)} 個の配列をパースしました。")
         analyzer = SequenceAnalysisTask()
-        analysis_result = analyzer.execute(parse_result.records)
+        analysis_result = analyzer.run(parse_result.records)
         status.update(label="解析完了!", state="complete", expanded=False)
 
     st.divider()
