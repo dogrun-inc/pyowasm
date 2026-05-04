@@ -8,7 +8,7 @@ class BaseTask(ABC):
     """
 
     @abstractmethod
-    def execute(self, input_data: Any) -> AnalysisResult:
+    def run(self, input_data: Any) -> Any:
         """
         タスクを実行し、解析結果を返す。
 
@@ -16,6 +16,15 @@ class BaseTask(ABC):
             input_data (Any): タスクへの入力データ。
 
         Returns:
-            AnalysisResult: 解析結果オブジェクト。
+            Any: 解析結果。
         """
         pass
+
+    def render(self, result: Any) -> None:
+        """
+        解析結果をStreamlit UIにレンダリングします。
+        デフォルトでは結果をコードブロックとして表示します。
+        """
+        import streamlit as st
+        st.write("### 解析結果")
+        st.code(str(result))
