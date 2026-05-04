@@ -23,7 +23,7 @@ class VFSManager:
         except AttributeError:
             # ローカル環境用フォールバック
             os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
-            with open(filename, "w") as f:
+            with open(filename, "w", encoding="utf-8") as f:
                 f.write(content)
             return filename
 
@@ -38,6 +38,6 @@ class VFSManager:
         except AttributeError:
             # ローカル環境用フォールバック
             if os.path.exists(filename):
-                with open(filename, "r") as f:
+                with open(filename, "r", encoding="utf-8") as f:
                     return f.read()
             raise FileNotFoundError(f"File not found in VFS: {filename}")
