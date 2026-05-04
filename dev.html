@@ -19,54 +19,7 @@
     <div id="root"></div>
     <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.js"></script>
     <script>
-      const fastaParserCode = `from io import StringIO
-from Bio import SeqIO
-from pyowasm.models.schema import SequenceRecord, AnalysisResult
-from pyowasm.tasks.base import BaseTask
-
-class FastaParserTask(BaseTask):
-    def run(self, fasta_content: str) -> AnalysisResult:
-        records = []
-        warnings: list[str] = []
-
-        if not fasta_content.strip():
-            return AnalysisResult(records=records, metadata={"warnings": warnings})
-
-        first_non_empty_line = next((line for line in fasta_content.splitlines() if line.strip()), "")
-        if first_non_empty_line and not first_non_empty_line.startswith(">"):
-            warnings.append("FASTAヘッダ(\`>\`)から始まっていないため、入力形式が不正の可能性があります。")
-
-        fasta_io = StringIO(fasta_content)
-        try:
-            for record in SeqIO.parse(fasta_io, "fasta"):
-                records.append(SequenceRecord(
-                    id=str(record.id),
-                    description=str(record.description),
-                    sequence=str(record.seq),
-                    length=len(record.seq)
-                ))
-        except ValueError as error:
-            warnings.append(f"FASTAのパース中に警告が発生しました: {error}")
-
-        return AnalysisResult(records=records, metadata={"warnings": warnings})
-`;
-
-      const sequenceAnalyzerCode = `from Bio.SeqUtils import gc_fraction
-from pyowasm.models.schema import SequenceRecord, AnalysisResult
-from pyowasm.tasks.base import BaseTask
-
-class SequenceAnalysisTask(BaseTask):
-    def run(self, records: list[SequenceRecord]) -> AnalysisResult:
-        for record in records:
-            record.gc_content = gc_fraction(record.sequence) * 100
-            composition: dict[str, int] = {}
-            for base in record.sequence.upper():
-                if base.isalpha():
-                    composition[base] = composition.get(base, 0) + 1
-            record.base_composition = composition
-        return AnalysisResult(records=records)
-`;
-
+      // src/pyowasm/models/schema.py
       const schemaCode = `from dataclasses import dataclass
 from typing import List, Optional
 
@@ -85,20 +38,124 @@ class AnalysisResult:
     metadata: Optional[dict] = None
 `;
 
+      // src/pyowasm/tasks/base.py
       const baseTaskCode = `from abc import ABC, abstractmethod
 from typing import Any
 from pyowasm.models.schema import AnalysisResult
 
 class BaseTask(ABC):
     @abstractmethod
-    def run(self, input_data: Any) -> AnalysisResult:
+    def run(self, input_data: Any) -> Any:
         pass
+
+    def render(self, result: Any) -> None:
+        import streamlit as st
+        st.write("### 解析結果")
+        st.code(str(result))
 `;
 
+      // src/pyowasm/tasks/local/fasta_parser.py
+      const fastaParserCode = `from io import StringIO
+from Bio import SeqIO
+from pyowasm.models.schema import SequenceRecord, AnalysisResult
+from pyowasm.tasks.base import BaseTask
+
+class FastaParserTask(BaseTask):
+    def run(self, fasta_content: str) -> AnalysisResult:
+        records = []
+        warnings = []
+        if not fasta_content.strip():
+            return AnalysisResult(records=records, metadata={"warnings": warnings})
+        fasta_io = StringIO(fasta_content)
+        try:
+            for record in SeqIO.parse(fasta_io, "fasta"):
+                records.append(SequenceRecord(
+                    id=str(record.id),
+                    description=str(record.description),
+                    sequence=str(record.seq),
+                    length=len(record.seq)
+                ))
+        except Exception as error:
+            warnings.append(f"パースエラー: {error}")
+        return AnalysisResult(records=records, metadata={"warnings": warnings})
+`;
+
+      // src/pyowasm/tasks/local/sequence_analyzer.py
+      const sequenceAnalyzerCode = `from Bio.SeqUtils import gc_fraction
+from pyowasm.models.schema import SequenceRecord, AnalysisResult
+from pyowasm.tasks.base import BaseTask
+
+class SequenceAnalysisTask(BaseTask):
+    def run(self, records: list[SequenceRecord]) -> AnalysisResult:
+        for record in records:
+            record.gc_content = gc_fraction(record.sequence) * 100
+            composition = {}
+            for base in record.sequence.upper():
+                if base.isalpha():
+                    composition[base] = composition.get(base, 0) + 1
+            record.base_composition = composition
+        return AnalysisResult(records=records)
+`;
+
+      // src/pyowasm/bridge/biowasm.py
+      const biowasmBridgeCode = `import js
+from pyodide.ffi import to_js
+
+class BiowasmBridge:
+    def __init__(self):
+        self._clis = {}
+
+    async def _get_cli(self, tool: str):
+        if tool not in self._clis:
+            try:
+                cli = await js.Aioli.new(tool)
+                self._clis[tool] = cli
+            except Exception as e:
+                raise e
+        return self._clis[tool]
+
+    async def run_tool(self, tool: str, args: str) -> str:
+        try:
+            cli = await self._get_cli(tool)
+            result = await cli.exec(args)
+            return str(result)
+        except Exception as e:
+            return f"Wasm実行エラー: {str(e)}"
+
+    def write_to_vfs(self, filename: str, content: str) -> str:
+        try:
+            js.FS.writeFile(filename, content)
+            return filename
+        except Exception:
+            import os
+            with open(filename, "w") as f:
+                f.write(content)
+            return filename
+
+bridge = BiowasmBridge()
+`;
+
+      // src/pyowasm/tasks/wasm/seqtk.py
+      const seqtkTaskCode = `import streamlit as st
+from ..base import BaseTask
+from ...bridge.biowasm import bridge
+
+class SeqtkTask(BaseTask):
+    async def run(self, input_filename: str, command: str = "seq -a") -> str:
+        result = await bridge.run_tool("seqtk/1.3", f"{command} {input_filename}")
+        return result
+
+    def render(self, result: str) -> None:
+        st.success("Wasm(seqtk) での処理が完了しました。")
+        st.write("### Seqtk 出力")
+        st.code(result)
+`;
+
+      // src/pyowasm/ui/components.py
       const uiComponentsCode = `import streamlit as st
 import pandas as pd
 from typing import List
-from pyowasm.models.schema import SequenceRecord
+from ..models.schema import SequenceRecord
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
     st.subheader("解析結果サマリー")
@@ -125,16 +182,53 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 df_comp = pd.DataFrame(list(comp.items()), columns=["Base", "Count"])
                 st.bar_chart(df_comp.set_index("Base"))
 
+def display_biowasm_ui(input_filename: str) -> None:
+    st.divider()
+    st.header("🛠️ Wasm Tools (biowasm)")
+    st.write(f"VFS内のファイルを処理します: \`{input_filename}\`")
+
+    tool_options = ["seqtk"]
+    selected_tool = st.selectbox("ツールを選択", tool_options)
+
+    if selected_tool == "seqtk":
+        command = st.text_input("コマンド引数", value="seq -a")
+        result_container = st.container()
+        
+        if st.button("Wasmで実行"):
+            from ..tasks.wasm.seqtk import SeqtkTask
+            import asyncio
+
+            async def run_wasm():
+                task = SeqtkTask()
+                with st.spinner(f"{selected_tool} を実行中..."):
+                    try:
+                        result = await task.run(input_filename, command)
+                        with result_container:
+                            task.render(result)
+                    except Exception as e:
+                        result_container.error(f"実行エラー: {str(e)}")
+
+            try:
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.ensure_future(run_wasm())
+                else:
+                    loop.run_until_complete(run_wasm())
+            except Exception as e:
+                st.error(f"非同期実行エラー: {str(e)}")
+
 def display_header() -> None:
     st.title("🧬 Pyowasm")
     st.caption("Python × WebAssembly × Bioinformatics")
     st.markdown("### 🚀 ブラウザが次世代の解析プラットフォームになる\\n**Pyowasm** は、環境構築不要のバイオ解析環境です。")
 `;
 
+      // src/pyowasm/app.py
       const appCode = `import streamlit as st
-from pyowasm.ui.components import display_header, display_sequence_stats
+from pyowasm.ui.components import display_header, display_sequence_stats, display_biowasm_ui
 from pyowasm.tasks.local.fasta_parser import FastaParserTask
 from pyowasm.tasks.local.sequence_analyzer import SequenceAnalysisTask
+from pyowasm.bridge.biowasm import bridge
 
 st.set_page_config(page_title="Pyowasm", page_icon="🧬")
 
@@ -145,58 +239,45 @@ uploaded_file = st.file_uploader("FASTAファイルをドロップ", type=["fast
 if uploaded_file:
     with st.status("Python (Wasm) で解析中...", expanded=True) as status:
         fasta_data = uploaded_file.getvalue().decode("utf-8")
+        vfs_path = "input.fasta"
+        bridge.write_to_vfs(vfs_path, fasta_data)
+
         parser = FastaParserTask()
         parse_result = parser.run(fasta_data)
         warnings = (parse_result.metadata or {}).get("warnings", [])
         for warning in warnings:
             st.warning(warning)
         st.write(f"BioPythonを使用して {len(parse_result.records)} 個の配列をパースしました。")
+
         analyzer = SequenceAnalysisTask()
         analysis_result = analyzer.run(parse_result.records)
         status.update(label="解析完了!", state="complete", expanded=False)
 
     st.divider()
     display_sequence_stats(analysis_result.records)
+    display_biowasm_ui(vfs_path)
 `;
-
-      const vfsManagerCode = `import js
-      import os
-
-      class VFSManager:
-      @staticmethod
-      def write_to_vfs(filename: str, content: str) -> str:
-        try:
-            js.FS.writeFile(filename, content)
-            js.console.log(f"[Pyowasm/VFS] File written: {filename}")
-            return filename
-        except AttributeError:
-            os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
-            with open(filename, "w") as f:
-                f.write(content)
-            return filename
-
-      @staticmethod
-      def read_from_vfs(filename: str) -> str:
-        try:
-            data = js.FS.readFile(filename, {"encoding": "utf8"})
-            return str(data)
-        except AttributeError:
-            if os.path.exists(filename):
-                with open(filename, "r") as f:
-                    return f.read()
-            raise FileNotFoundError(f"File not found: {filename}")
-      `;
 
       stlite.mount(
         {
           requirements: ["biopython", "pandas"],
           entrypoint: "pyowasm/app.py",
           files: {
-            "pyowasm/app.py": appCode,
             "pyowasm/__init__.py": "",
-            "pyowasm/engine/__init__.py": "",
-            "pyowasm/engine/vfs.py": vfsManagerCode,
-            // ... 他のファイル
+            "pyowasm/app.py": appCode,
+            "pyowasm/models/__init__.py": "",
+            "pyowasm/models/schema.py": schemaCode,
+            "pyowasm/tasks/__init__.py": "",
+            "pyowasm/tasks/base.py": baseTaskCode,
+            "pyowasm/tasks/local/__init__.py": "",
+            "pyowasm/tasks/local/fasta_parser.py": fastaParserCode,
+            "pyowasm/tasks/local/sequence_analyzer.py": sequenceAnalyzerCode,
+            "pyowasm/tasks/wasm/__init__.py": "",
+            "pyowasm/tasks/wasm/seqtk.py": seqtkTaskCode,
+            "pyowasm/bridge/__init__.py": "",
+            "pyowasm/bridge/biowasm.py": biowasmBridgeCode,
+            "pyowasm/ui/__init__.py": "",
+            "pyowasm/ui/components.py": uiComponentsCode,
           },
         },
         document.getElementById("root")
