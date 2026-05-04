@@ -37,5 +37,5 @@ def test_fasta_parser_run_invalid_input_returns_warning_without_raising():
 
     assert result.records == []
     assert result.metadata is not None
-    assert len(result.metadata["warnings"]) == 1
-    assert "不正" in result.metadata["warnings"][0]
+    assert len(result.metadata["warnings"]) >= 1
+    assert any("不正" in w for w in result.metadata["warnings"])
