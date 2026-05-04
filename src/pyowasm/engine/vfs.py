@@ -1,6 +1,9 @@
-import js
 import os
-from typing import Optional
+
+try:
+    import js
+except ImportError:
+    js = None  # ローカル環境ではNone、AttributeErrorで既存のfallbackが動作
 
 class VFSManager:
     """
