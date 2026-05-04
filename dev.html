@@ -25,7 +25,7 @@ from pyowasm.models.schema import SequenceRecord, AnalysisResult
 from pyowasm.tasks.base import BaseTask
 
 class FastaParserTask(BaseTask):
-    def execute(self, fasta_content: str) -> AnalysisResult:
+    def run(self, fasta_content: str) -> AnalysisResult:
         records = []
         warnings: list[str] = []
 
@@ -56,7 +56,7 @@ from pyowasm.models.schema import SequenceRecord, AnalysisResult
 from pyowasm.tasks.base import BaseTask
 
 class SequenceAnalysisTask(BaseTask):
-    def execute(self, records: list[SequenceRecord]) -> AnalysisResult:
+    def run(self, records: list[SequenceRecord]) -> AnalysisResult:
         for record in records:
             record.gc_content = gc_fraction(record.sequence) * 100
             composition: dict[str, int] = {}
@@ -91,7 +91,7 @@ from pyowasm.models.schema import AnalysisResult
 
 class BaseTask(ABC):
     @abstractmethod
-    def execute(self, input_data: Any) -> AnalysisResult:
+    def run(self, input_data: Any) -> AnalysisResult:
         pass
 `;
 
@@ -146,18 +146,46 @@ if uploaded_file:
     with st.status("Python (Wasm) で解析中...", expanded=True) as status:
         fasta_data = uploaded_file.getvalue().decode("utf-8")
         parser = FastaParserTask()
-        parse_result = parser.execute(fasta_data)
+        parse_result = parser.run(fasta_data)
         warnings = (parse_result.metadata or {}).get("warnings", [])
         for warning in warnings:
             st.warning(warning)
         st.write(f"BioPythonを使用して {len(parse_result.records)} 個の配列をパースしました。")
         analyzer = SequenceAnalysisTask()
-        analysis_result = analyzer.execute(parse_result.records)
+        analysis_result = analyzer.run(parse_result.records)
         status.update(label="解析完了!", state="complete", expanded=False)
 
     st.divider()
     display_sequence_stats(analysis_result.records)
 `;
+
+      const vfsManagerCode = `import js
+      import os
+
+      class VFSManager:
+      @staticmethod
+      def write_to_vfs(filename: str, content: str) -> str:
+        try:
+            js.FS.writeFile(filename, content)
+            js.console.log(f"[Pyowasm/VFS] File written: {filename}")
+            return filename
+        except AttributeError:
+            os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
+            with open(filename, "w") as f:
+                f.write(content)
+            return filename
+
+      @staticmethod
+      def read_from_vfs(filename: str) -> str:
+        try:
+            data = js.FS.readFile(filename, {"encoding": "utf8"})
+            return str(data)
+        except AttributeError:
+            if os.path.exists(filename):
+                with open(filename, "r") as f:
+                    return f.read()
+            raise FileNotFoundError(f"File not found: {filename}")
+      `;
 
       stlite.mount(
         {
@@ -166,15 +194,9 @@ if uploaded_file:
           files: {
             "pyowasm/app.py": appCode,
             "pyowasm/__init__.py": "",
-            "pyowasm/models/__init__.py": "",
-            "pyowasm/models/schema.py": schemaCode,
-            "pyowasm/tasks/__init__.py": "",
-            "pyowasm/tasks/base.py": baseTaskCode,
-            "pyowasm/tasks/local/__init__.py": "",
-            "pyowasm/tasks/local/fasta_parser.py": fastaParserCode,
-            "pyowasm/tasks/local/sequence_analyzer.py": sequenceAnalyzerCode,
-            "pyowasm/ui/__init__.py": "",
-            "pyowasm/ui/components.py": uiComponentsCode,
+            "pyowasm/engine/__init__.py": "",
+            "pyowasm/engine/vfs.py": vfsManagerCode,
+            // ... 他のファイル
           },
         },
         document.getElementById("root")
