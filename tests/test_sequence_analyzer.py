@@ -8,10 +8,10 @@ def test_sequence_analysis_execute():
     """
     fasta_data = ">seq1\nATGC"
     parser = FastaParserTask()
-    parse_result = parser.execute(fasta_data)
+    parse_result = parser.run(fasta_data)
     
     analyzer = SequenceAnalysisTask()
-    analysis_result = analyzer.execute(parse_result.records)
+    analysis_result = analyzer.run(parse_result.records)
     
     record = analysis_result.records[0]
     assert record.gc_content == 50.0  # (G+C)/4 = 2/4 = 50%

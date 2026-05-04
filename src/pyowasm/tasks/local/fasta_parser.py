@@ -8,7 +8,7 @@ class FastaParserTask(BaseTask):
     BioPythonを使用してFASTA形式のデータをパースするタスク。
     """
 
-    def execute(self, fasta_content: str) -> AnalysisResult:
+    def run(self, fasta_content: str) -> AnalysisResult:
         """
         FASTA文字列をパースし、SequenceRecordのリストを含むAnalysisResultを返す。
 

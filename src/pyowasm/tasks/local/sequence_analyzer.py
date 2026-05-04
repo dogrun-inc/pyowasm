@@ -7,7 +7,7 @@ class SequenceAnalysisTask(BaseTask):
     BioPythonを使用して配列の統計情報（GC含有量、塩基組成など）を計算するタスク。
     """
 
-    def execute(self, records: list[SequenceRecord]) -> AnalysisResult:
+    def run(self, records: list[SequenceRecord]) -> AnalysisResult:
         """
         SequenceRecordのリストを受け取り、各レコードの統計情報を計算して更新する。
 
@@ -29,3 +29,10 @@ class SequenceAnalysisTask(BaseTask):
             record.base_composition = composition
             
         return AnalysisResult(records=records)
+
+    def render(self, result: AnalysisResult) -> None:
+        """
+        解析結果を表示します。
+        """
+        from ...ui.components import display_sequence_stats
+        display_sequence_stats(result.records)
