@@ -18,7 +18,7 @@ if uploaded_file:
         
         # タスクの実行
         parser = FastaParserTask()
-        parse_result = parser.execute(fasta_data)
+        parse_result = parser.run(fasta_data)
 
         warnings = (parse_result.metadata or {}).get("warnings", [])
         for warning in warnings:
@@ -29,7 +29,7 @@ if uploaded_file:
         # 解析タスクの実行
         st.write("統計情報を計算中...")
         analyzer = SequenceAnalysisTask()
-        analysis_result = analyzer.execute(parse_result.records)
+        analysis_result = analyzer.run(parse_result.records)
         
         # --- Step 2: 外部API/Wasmツールの実行（プレースホルダ） ---
         st.write("外部APIを確認中...")
