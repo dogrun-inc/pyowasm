@@ -248,6 +248,7 @@ def test_seqtk_task_render_error_with_debug_trace(biowasm_modules):
 async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules):
     """task.run() が例外を投げた場合、st.error で表示"""
     components = biowasm_modules["components_module"]
+    seqtk_module = biowasm_modules["seqtk_module"]
     result_container = MagicMock()
     result_container.__enter__.return_value = result_container
     result_container.__exit__.return_value = None
@@ -264,7 +265,7 @@ async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules)
          patch.object(components.st, "button", return_value=True), \
          patch.object(components.st, "spinner"), \
          patch.object(components.st, "error") as mock_error, \
-         patch("pyowasm.ui.components.SeqtkTask.run", new=fake_run_with_error):
+         patch.object(seqtk_module.SeqtkTask, "run", new=fake_run_with_error):
         await components.display_biowasm_ui("/tmp/input.fasta")
 
     mock_error.assert_called_once()
