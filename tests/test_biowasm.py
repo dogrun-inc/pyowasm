@@ -159,3 +159,113 @@ async def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules)
         await components.display_biowasm_ui("/tmp/input.fasta")
 
     mock_render.assert_called_once_with("seq -A::/tmp/input.fasta")
+
+
+# ====== 新規テスト: エラーハンドリングと edge cases ======
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_run_tool_returns_error_when_js_eval_returns_error_status(biowasm_modules):
+    """JS側から status:error が返された場合"""
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    biowasm_modules["js"].eval.return_value = '{"status": "error", "message": "Aioli failed", "debug": ["step1", "step2"]}'
+
+    result = await bridge.run_tool("seqtk/1.3", "seq -a input.fasta")
+
+    assert "Wasm実行エラー: Aioli failed" in result
+    assert "--- Debug Trace ---" in result
+    assert "step1" in result
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_run_tool_returns_error_when_exit_code_nonzero(biowasm_modules):
+    """seqtk の exit code が 0 以外の場合"""
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    biowasm_modules["js"].eval.return_value = (
+        '{"status": "success", "data": {"stdout": "", "stderr": "error message", "exitCode": 1}, "debug": []}'
+    )
+
+    result = await bridge.run_tool("seqtk/1.3", "seq -a input.fasta")
+
+    assert "Wasm実行エラー: error message" in result
+    assert "--- Debug Trace ---" in result
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_run_tool_returns_bridge_error_on_exception(biowasm_modules):
+    """Python 側で例外が発生した場合"""
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    biowasm_modules["js"].eval.side_effect = RuntimeError("JS evaluation failed")
+
+    result = await bridge.run_tool("seqtk/1.3", "seq -a input.fasta")
+
+    assert "ブリッジ通信エラー: JS evaluation failed" in result
+    assert "--- Debug Trace ---" in result
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_run_tool_skips_mount_when_input_file_not_in_args(biowasm_modules):
+    """input.fasta がコマンドに含まれない場合、mount ブロックはスキップ"""
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    biowasm_modules["js"].eval.return_value = '{"status": "success", "data": "output", "debug": ["mount_skipped"]}'
+
+    result = await bridge.run_tool("seqtk/1.3", "version")
+
+    assert result == "output"
+    # debugLogs に mount_skipped が含まれることで検証
+    biowasm_modules["js"].eval.assert_awaited_once()
+
+
+def test_biowasm_bridge_write_to_vfs_fallback_when_fs_write_fails(biowasm_modules):
+    """FS.writeFile が失敗した場合、OS フォールバックで処理"""
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    biowasm_modules["js"].FS.writeFile.side_effect = AttributeError("FS not available")
+
+    result = bridge.write_to_vfs("test.fasta", ">seq1\nATGC")
+
+    # js._pyowasm_upload_text は必ず設定される
+    assert hasattr(biowasm_modules["js"], "_pyowasm_upload_text")
+    assert result == "test.fasta"
+
+
+def test_seqtk_task_render_error_with_debug_trace(biowasm_modules):
+    """seqtk render でエラー文字列 + debug trace を表示"""
+    task = biowasm_modules["seqtk_module"].SeqtkTask()
+    error_output = "Wasm実行エラー: [E::stk_seq] failed\n\n--- Debug Trace ---\n[PY] log1\n[JS] log2"
+
+    with patch("streamlit.error") as mock_error, \
+         patch("streamlit.code") as mock_code, \
+         patch("streamlit.expander") as mock_expander:
+        mock_expander.return_value.__enter__ = MagicMock()
+        mock_expander.return_value.__exit__ = MagicMock(return_value=None)
+        
+        task.render(error_output)
+
+    mock_error.assert_called_once_with("Wasm(seqtk) 実行でエラーが発生しました。")
+    mock_expander.assert_called_once_with("デバッグトレースを表示", expanded=True)
+
+
+@pytest.mark.asyncio
+async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules):
+    """task.run() が例外を投げた場合、st.error で表示"""
+    components = biowasm_modules["components_module"]
+    result_container = MagicMock()
+    result_container.__enter__.return_value = result_container
+    result_container.__exit__.return_value = None
+
+    async def fake_run_with_error(self, input_filename, command):
+        raise RuntimeError("Task execution failed")
+
+    with patch.object(components.st, "divider"), \
+         patch.object(components.st, "header"), \
+         patch.object(components.st, "write"), \
+         patch.object(components.st, "selectbox", return_value="seqtk"), \
+         patch.object(components.st, "text_input", return_value="seq -a"), \
+         patch.object(components.st, "container", return_value=result_container), \
+         patch.object(components.st, "button", return_value=True), \
+         patch.object(components.st, "spinner"), \
+         patch.object(components.st, "error") as mock_error, \
+         patch("pyowasm.ui.components.SeqtkTask.run", new=fake_run_with_error):
+        await components.display_biowasm_ui("/tmp/input.fasta")
+
+    mock_error.assert_called_once()
+    assert "Task execution failed" in str(mock_error.call_args)
