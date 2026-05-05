@@ -46,4 +46,4 @@ if uploaded_file:
     display_sequence_stats(analysis_result.records)
 
     # Biowasm UI の表示
-    display_biowasm_ui(vfs_path)
+    await display_biowasm_ui(vfs_path)
