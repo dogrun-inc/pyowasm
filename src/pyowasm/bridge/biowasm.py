@@ -20,30 +20,10 @@ class BiowasmBridge:
         ]
 
         try:
-            # 自動マウント用の事前処理 (Python側でFS操作を行う)
+            # 入力ファイルの有無を判定（JS側でマウント処理を制御）
             target_file = "input.fasta"
             has_input_file = target_file in args
             py_debug.append(f"[PY] has_input_file={has_input_file}")
-            
-            if has_input_file:
-                try:
-                    # Python側からは js.FS が確実に参照できる前提
-                    file_data = js.FS.readFile(target_file)
-                    js._pyowasm_upload_data = file_data
-                    file_size = int(getattr(file_data, "length", 0) or 0)
-                    py_debug.append(f"[PY] FS.readFile ok size={file_size}")
-                except Exception as e:
-                    js.console.error(f"[Pyowasm] Failed to read {target_file} from Python: {str(e)}")
-                    py_debug.append(f"[PY] FS.readFile failed: {str(e)}")
-            else:
-                py_debug.append("[PY] no input.fasta in args")
-
-            # FS.readFileが失敗しても、write_to_vfsで保持した文字列から再構成できるようにする。
-            fallback_text = getattr(js, "_pyowasm_upload_text", None)
-            if isinstance(fallback_text, str):
-                py_debug.append(f"[PY] upload_text fallback exists len={len(fallback_text)}")
-            else:
-                py_debug.append("[PY] upload_text fallback missing")
 
             js_code = f"""
             (async () => {{
@@ -128,18 +108,12 @@ class BiowasmBridge:
                     }};
                     
             if ({'true' if has_input_file else 'false'}) {{
-                        let rawData = globalThis._pyowasm_upload_data;
-                        if (!rawData) {{
-                            const fallbackText = globalThis._pyowasm_upload_text;
-                            if (typeof fallbackText === "string") {{
-                                rawData = new TextEncoder().encode(fallbackText);
-                                log("using text fallback", rawData.length);
-                            }}
+                        const uploadText = globalThis._pyowasm_upload_text;
+                        if (typeof uploadText !== "string") {{
+                            throw new Error("Upload text not found in JS global scope (should be set by write_to_vfs)");
                         }}
-                        if (!rawData) throw new Error("Upload data not found in JS global scope");
-                        
-                        // Proxyオブジェクト等の可能性を考慮してUint8Arrayに変換
-                        const fileData = new Uint8Array(rawData);
+                        const fileData = new TextEncoder().encode(uploadText);
+                        log("mounting file from upload_text", fileData.length);
                         console.log('[Pyowasm] Mounting file:', targetFile, 'Size:', fileData.length, 'bytes');
                         
                         const blob = new Blob([fileData]);
@@ -158,9 +132,6 @@ class BiowasmBridge:
                         // 入力ファイル名の全出現箇所をマウント先へ置換
                         commandToExec = commandToExec.split(targetFile).join(mountedPath);
                         log("finalCommand", commandToExec);
-                        
-                        // メモリ解放
-                        delete globalThis._pyowasm_upload_data;
                     }}
 
                     log("executing", commandToExec);
