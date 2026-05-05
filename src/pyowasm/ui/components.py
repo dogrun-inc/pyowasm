@@ -42,6 +42,40 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 df_comp = pd.DataFrame(list(comp.items()), columns=["Base", "Count"])
                 st.bar_chart(df_comp.set_index("Base"))
 
+async def display_biowasm_ui(input_filename: str) -> None:
+    """
+    Wasmバイオ情報学ツールを操作するためのUIを表示する。
+
+    Args:
+        input_filename (str): 入力ファイルのパス（VFS内）。
+    """
+    st.divider()
+    st.header("🛠️ Wasm Tools (biowasm)")
+    st.write(f"VFS内のファイルを処理します: `{input_filename}`")
+
+    tool_options = ["seqtk"]
+    selected_tool = st.selectbox("ツールを選択", tool_options)
+
+    if selected_tool == "seqtk":
+        command = st.text_input("コマンド引数", value="seq -a")
+        
+        result_container = st.container()
+        
+        if st.button("Wasmで実行"):
+            from ..tasks.wasm.seqtk import SeqtkTask
+            
+            try:
+                task = SeqtkTask()
+                with st.spinner(f"{selected_tool} を実行中..."):
+                    # 直接 await を使用して結果を待機する
+                    result = await task.run(input_filename, command)
+
+                with result_container:
+                    task.render(result)
+            except Exception as e:
+                with result_container:
+                    st.error(f"実行エラー: {str(e)}")
+
 def display_header() -> None:
     """
     アプリケーションのヘッダーとブランディングを表示する。
