@@ -215,16 +215,21 @@ async def test_biowasm_bridge_run_tool_skips_mount_when_input_file_not_in_args(b
     biowasm_modules["js"].eval.assert_awaited_once()
 
 
-def test_biowasm_bridge_write_to_vfs_fallback_when_fs_write_fails(biowasm_modules):
+def test_biowasm_bridge_write_to_vfs_fallback_when_fs_write_fails(biowasm_modules, tmp_path):
     """FS.writeFile が失敗した場合、OS フォールバックで処理"""
     bridge = biowasm_modules["bridge_module"].BiowasmBridge()
     biowasm_modules["js"].FS.writeFile.side_effect = AttributeError("FS not available")
-
-    result = bridge.write_to_vfs("test.fasta", ">seq1\nATGC")
+    
+    # tmp_path を使用してテンポラリディレクトリでテスト
+    test_file = str(tmp_path / "test.fasta")
+    result = bridge.write_to_vfs(test_file, ">seq1\nATGC")
 
     # js._pyowasm_upload_text は必ず設定される
     assert hasattr(biowasm_modules["js"], "_pyowasm_upload_text")
-    assert result == "test.fasta"
+    assert result == test_file
+    # ファイルが実際に作成されたことを確認
+    import os
+    assert os.path.exists(test_file)
 
 
 def test_seqtk_task_render_error_with_debug_trace(biowasm_modules):
