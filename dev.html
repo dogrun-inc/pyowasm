@@ -99,34 +99,181 @@ class SequenceAnalysisTask(BaseTask):
 
       // src/pyowasm/bridge/biowasm.py
       const biowasmBridgeCode = `import js
+import json
 from pyodide.ffi import to_js
 
 class BiowasmBridge:
     def __init__(self):
-        self._clis = {}
-
-    async def _get_cli(self, tool: str):
-        if tool not in self._clis:
-            try:
-                cli = await js.Aioli.new(tool)
-                self._clis[tool] = cli
-            except Exception as e:
-                raise e
-        return self._clis[tool]
+        self.initialized = True
 
     async def run_tool(self, tool: str, args: str) -> str:
+        py_debug = [
+            f"[PY] tool={tool}",
+            f"[PY] args={args}",
+        ]
+
         try:
-            cli = await self._get_cli(tool)
-            result = await cli.exec(args)
-            return str(result)
+            target_file = "input.fasta"
+            has_input_file = target_file in args
+            py_debug.append(f"[PY] has_input_file={has_input_file}")
+            if has_input_file:
+                try:
+                    file_data = js.FS.readFile(target_file)
+                    js._pyowasm_upload_data = file_data
+                    file_size = int(getattr(file_data, "length", 0) or 0)
+                    py_debug.append(f"[PY] FS.readFile ok size={file_size}")
+                except Exception:
+                    py_debug.append("[PY] FS.readFile failed")
+            else:
+                py_debug.append("[PY] no input.fasta in args")
+
+            fallback_text = getattr(js, "_pyowasm_upload_text", None)
+            if isinstance(fallback_text, str):
+                py_debug.append(f"[PY] upload_text fallback exists len={len(fallback_text)}")
+            else:
+                py_debug.append("[PY] upload_text fallback missing")
+
+            js_code = f"""
+            (async () => {{
+                const debugLogs = [];
+                const log = (...items) => {{
+                    const line = items
+                        .map((item) => {{
+                            if (typeof item === "string") return item;
+                            try {{
+                                return JSON.stringify(item);
+                            }} catch (_e) {{
+                                return String(item);
+                            }}
+                        }})
+                        .join(" ");
+                    debugLogs.push(line);
+                    try {{
+                        console.log("[Pyowasm][debug]", ...items);
+                    }} catch (_e) {{}}
+                }};
+
+                try {{
+                    log("start", {{ tool: "{tool}", args: \`{args}\` }});
+
+                    if (typeof Aioli === 'undefined') {{
+                        log("Aioli not found, trying dynamic import");
+                        try {{
+                            const module = await import('https://biowasm.com/cdn/v3/aioli.js');
+                            if (module.default) {{
+                                globalThis.Aioli = module.default;
+                                log("Aioli resolved from module.default");
+                            }} else if (typeof globalThis.Aioli === 'undefined') {{
+                                for (const key in module) {{
+                                    if (typeof module[key] === 'function') {{
+                                        globalThis.Aioli = module[key];
+                                        log("Aioli resolved from module key", key);
+                                        break;
+                                    }}
+                                }}
+                            }}
+                        }} catch (e) {{
+                            log("dynamic import failed", e?.message || String(e));
+                            if (typeof importScripts === 'function') {{
+                                importScripts('https://biowasm.com/cdn/v3/aioli.js');
+                                log("fallback importScripts used");
+                            }}
+                        }}
+                    }}
+
+                    if (typeof globalThis.Aioli !== 'function') {{
+                         throw new Error("Aioli could not be loaded as a constructor");
+                    }}
+
+                    if (!globalThis._pyowasm_clis) globalThis._pyowasm_clis = {{}};
+                    const toolName = "{tool}";
+                    if (!globalThis._pyowasm_clis[toolName]) {{
+                        log("creating new Aioli instance", toolName);
+                        globalThis._pyowasm_clis[toolName] = await new Aioli([toolName]);
+                    }}
+                    const cli = globalThis._pyowasm_clis[toolName];
+                    log("cli ready", !!cli);
+
+                    let commandToExec = \`{args}\`;
+                    const targetFile = "{target_file}";
+                    const resolveMountedPath = (value) => {{
+                        if (!value) return null;
+                        if (typeof value === "string") return value;
+                        if (Array.isArray(value)) {{
+                            for (const item of value) {{
+                                const resolved = resolveMountedPath(item);
+                                if (resolved) return resolved;
+                            }}
+                            return null;
+                        }}
+                        if (typeof value === "object") {{
+                            return value.path || value.mountPath || value.file || value.name || null;
+                        }}
+                        return null;
+                    }};
+                    if ({'true' if has_input_file else 'false'}) {{
+                        let rawData = globalThis._pyowasm_upload_data;
+                        if (!rawData) {{
+                            const fallbackText = globalThis._pyowasm_upload_text;
+                            if (typeof fallbackText === "string") {{
+                                rawData = new TextEncoder().encode(fallbackText);
+                                log("using text fallback", rawData.length);
+                            }}
+                        }}
+                        if (!rawData) throw new Error("Upload data not found");
+                        const fileData = new Uint8Array(rawData);
+                        log("mounting file", targetFile, fileData.length);
+                        const blob = new Blob([fileData]);
+                        const mountedPaths = await cli.mount([{{ name: targetFile, data: blob }}]);
+                        log("mountedPaths", mountedPaths);
+                        const mountedPath = resolveMountedPath(mountedPaths);
+                        if (!mountedPath) throw new Error("Aioli mount failed: could not resolve mounted path");
+                        commandToExec = commandToExec.split(targetFile).join(mountedPath);
+                        log("finalCommand", commandToExec);
+                        delete globalThis._pyowasm_upload_data;
+                    }}
+
+                    log("executing", commandToExec);
+                    const result = await cli.exec(commandToExec);
+                    log("exec completed");
+                    return JSON.stringify({{ status: "success", data: result, debug: debugLogs }});
+                }} catch (e) {{
+                    log("bridgeError", e?.message || String(e));
+                    return JSON.stringify({{ status: "error", message: e.message || String(e), debug: debugLogs }});
+                }}
+            }})()
+            """
+            js_response_json = await js.eval(js_code)
+            py_debug.append(f"[PY] js_response_json={js_response_json}")
+            response = json.loads(js_response_json)
+            js_debug = response.get("debug") or []
+            trace = "\\n".join(py_debug + [f"[JS] {line}" for line in js_debug])
+            if response["status"] == "success":
+                data = response.get("data")
+                if isinstance(data, dict):
+                    stdout = str(data.get("stdout") or "")
+                    stderr = str(data.get("stderr") or "")
+                    exit_code = data.get("exitCode", data.get("code"))
+
+                    if exit_code not in (None, 0):
+                        message = stderr or stdout or str(data)
+                        return f"Wasm実行エラー: {message}\\n\\n--- Debug Trace ---\\n{trace}"
+                    return stdout or stderr or json.dumps(data, ensure_ascii=False)
+
+                return str(data)
+            return f"Wasm実行エラー: {response['message']}\\n\\n--- Debug Trace ---\\n{trace}"
         except Exception as e:
-            return f"Wasm実行エラー: {str(e)}"
+            py_debug.append(f"[PY] exception={str(e)}")
+            trace = "\\n".join(py_debug)
+            return f"ブリッジ通信エラー: {str(e)}\\n\\n--- Debug Trace ---\\n{trace}"
 
     def write_to_vfs(self, filename: str, content: str) -> str:
         try:
             js.FS.writeFile(filename, content)
+            js._pyowasm_upload_text = content
             return filename
         except Exception:
+            js._pyowasm_upload_text = content
             import os
             with open(filename, "w") as f:
                 f.write(content)
@@ -142,12 +289,30 @@ from ...bridge.biowasm import bridge
 
 class SeqtkTask(BaseTask):
     async def run(self, input_filename: str, command: str = "seq -a") -> str:
-        result = await bridge.run_tool("seqtk/1.3", f"{command} {input_filename}")
+        full_command = command.strip()
+        if not full_command.startswith("seqtk"):
+            full_command = f"seqtk {full_command}"
+
+        if input_filename not in full_command.split():
+            full_command = f"{full_command} {input_filename}"
+
+        result = await bridge.run_tool("seqtk/1.3", full_command)
         return result
 
     def render(self, result: str) -> None:
-        st.success("Wasm(seqtk) での処理が完了しました。")
         st.write("### Seqtk 出力")
+        if result.startswith("Wasm実行エラー:") or result.startswith("ブリッジ通信エラー:"):
+            st.error("Wasm(seqtk) 実行でエラーが発生しました。")
+            if "--- Debug Trace ---" in result:
+                message, trace = result.split("--- Debug Trace ---", 1)
+                st.code(message.strip())
+                with st.expander("デバッグトレースを表示", expanded=True):
+                    st.code(trace.strip())
+            else:
+                st.code(result)
+            return
+
+        st.success("Wasm(seqtk) での処理が完了しました。")
         st.code(result)
 `;
 
@@ -182,7 +347,7 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 df_comp = pd.DataFrame(list(comp.items()), columns=["Base", "Count"])
                 st.bar_chart(df_comp.set_index("Base"))
 
-def display_biowasm_ui(input_filename: str) -> None:
+async def display_biowasm_ui(input_filename: str) -> None:
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
     st.write(f"VFS内のファイルを処理します: \`{input_filename}\`")
@@ -196,26 +361,17 @@ def display_biowasm_ui(input_filename: str) -> None:
         
         if st.button("Wasmで実行"):
             from ..tasks.wasm.seqtk import SeqtkTask
-            import asyncio
-
-            async def run_wasm():
-                task = SeqtkTask()
-                with st.spinner(f"{selected_tool} を実行中..."):
-                    try:
-                        result = await task.run(input_filename, command)
-                        with result_container:
-                            task.render(result)
-                    except Exception as e:
-                        result_container.error(f"実行エラー: {str(e)}")
 
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    asyncio.ensure_future(run_wasm())
-                else:
-                    loop.run_until_complete(run_wasm())
+                task = SeqtkTask()
+                with st.spinner(f"{selected_tool} を実行中..."):
+                    result = await task.run(input_filename, command)
+
+                with result_container:
+                    task.render(result)
             except Exception as e:
-                st.error(f"非同期実行エラー: {str(e)}")
+                with result_container:
+                    st.error(f"実行エラー: {str(e)}")
 
 def display_header() -> None:
     st.title("🧬 Pyowasm")
@@ -255,12 +411,12 @@ if uploaded_file:
 
     st.divider()
     display_sequence_stats(analysis_result.records)
-    display_biowasm_ui(vfs_path)
+    await display_biowasm_ui(vfs_path)
 `;
 
       stlite.mount(
         {
-          requirements: ["biopython", "pandas"],
+          requirements: ["biopython", "pandas", "nest-asyncio"],
           entrypoint: "pyowasm/app.py",
           files: {
             "pyowasm/__init__.py": "",
