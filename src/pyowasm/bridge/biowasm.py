@@ -31,6 +31,12 @@ class BiowasmBridge:
             use_legacy_upload = (not files) and ("input.fasta" in args)
             py_debug.append(f"[PY] has_files={bool(files) or use_legacy_upload}")
 
+            # f-string でJSコードを組み立てる際の注入/構文崩れを防ぐため、
+            # 外部入力は JSON 文字列リテラルとして埋め込む。
+            tool_js = json.dumps(tool, ensure_ascii=False)
+            args_js = json.dumps(args, ensure_ascii=False)
+            legacy_upload_js = "true" if use_legacy_upload else "false"
+
             js_code = f"""
             (async () => {{
                 const debugLogs = [];
@@ -52,7 +58,10 @@ class BiowasmBridge:
                 }};
 
                 try {{
-                    log("start", {{ tool: "{tool}", args: `{args}` }});
+                    const toolName = {tool_js};
+                    const rawArgs = {args_js};
+
+                    log("start", {{ tool: toolName, args: rawArgs }});
 
                     // 1. Aioli ロード
                     if (typeof Aioli === 'undefined') {{
@@ -82,7 +91,6 @@ class BiowasmBridge:
 
                     // 2. 初期化
                     if (!globalThis._pyowasm_clis) globalThis._pyowasm_clis = {{}};
-                    const toolName = "{tool}";
                     if (!globalThis._pyowasm_clis[toolName]) {{
                         log("creating new Aioli instance", toolName);
                         globalThis._pyowasm_clis[toolName] = await new Aioli([toolName]);
@@ -91,7 +99,7 @@ class BiowasmBridge:
                     log("cli ready", !!cli);
 
                     // 3. マウント処理
-                    let commandToExec = `{args}`;
+                    let commandToExec = rawArgs;
                     const filesToMount = [];
                     const jsFiles = globalThis._pyowasm_files;
 
@@ -105,7 +113,7 @@ class BiowasmBridge:
                     }}
 
                     // レガシー互換: _pyowasm_upload_text を使用
-                    if ({'true' if use_legacy_upload else 'false'} && !filesToMount.some(f => f.name === "input.fasta")) {{
+                    if ({legacy_upload_js} && !filesToMount.some(f => f.name === "input.fasta")) {{
                         const uploadText = globalThis._pyowasm_upload_text;
                         if (typeof uploadText === "string") {{
                             filesToMount.push({{
