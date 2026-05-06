@@ -1,3 +1,4 @@
 biopython
 streamlit
 pandas
+pytest-asyncio

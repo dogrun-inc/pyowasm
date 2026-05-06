@@ -10,20 +10,26 @@ class BiowasmBridge:
     def __init__(self):
         self.initialized = True
 
-    async def run_tool(self, tool: str, args: str) -> str:
+    async def run_tool(self, tool: str, args: str, files: dict[str, str] = None) -> str:
         """
         Wasmツールを実行します。
+        files: { "filename": "content" } の辞書。Aioliにマウントされます。
         """
         py_debug = [
             f"[PY] tool={tool}",
             f"[PY] args={args}",
         ]
 
+        # JSに渡すためのファイルデータを一時的にグローバルに配置（eval内で参照するため）
+        if files:
+            js._pyowasm_files = to_js(files)
+        else:
+            js._pyowasm_files = None
+
         try:
-            # 入力ファイルの有無を判定（JS側でマウント処理を制御）
-            target_file = "input.fasta"
-            has_input_file = target_file in args
-            py_debug.append(f"[PY] has_input_file={has_input_file}")
+            # 入力ファイルの有無を判定
+            use_legacy_upload = (not files) and ("input.fasta" in args)
+            py_debug.append(f"[PY] has_files={bool(files) or use_legacy_upload}")
 
             js_code = f"""
             (async () => {{
@@ -67,10 +73,6 @@ class BiowasmBridge:
                             }}
                         }} catch (e) {{
                             log("dynamic import failed", e?.message || String(e));
-                            if (typeof importScripts === 'function') {{
-                                importScripts('https://biowasm.com/cdn/v3/aioli.js');
-                                log("fallback importScripts used");
-                            }}
                         }}
                     }}
 
@@ -90,47 +92,49 @@ class BiowasmBridge:
 
                     // 3. マウント処理
                     let commandToExec = `{args}`;
-                    const targetFile = "{target_file}";
-                    const resolveMountedPath = (value) => {{
-                        if (!value) return null;
-                        if (typeof value === "string") return value;
-                        if (Array.isArray(value)) {{
-                            for (const item of value) {{
-                                const resolved = resolveMountedPath(item);
-                                if (resolved) return resolved;
-                            }}
-                            return null;
-                        }}
-                        if (typeof value === "object") {{
-                            return value.path || value.mountPath || value.file || value.name || null;
-                        }}
-                        return null;
-                    }};
-                    
-            if ({'true' if has_input_file else 'false'}) {{
-                        const uploadText = globalThis._pyowasm_upload_text;
-                        if (typeof uploadText !== "string") {{
-                            throw new Error("Upload text not found in JS global scope (should be set by write_to_vfs)");
-                        }}
-                        const fileData = new TextEncoder().encode(uploadText);
-                        log("mounting file from upload_text", fileData.length);
-                        console.log('[Pyowasm] Mounting file:', targetFile, 'Size:', fileData.length, 'bytes');
-                        
-                        const blob = new Blob([fileData]);
-                        const mountedPaths = await cli.mount([{{
-                            name: targetFile,
-                            data: blob
-                        }}]);
+                    const filesToMount = [];
+                    const jsFiles = globalThis._pyowasm_files;
 
+                    if (jsFiles && typeof jsFiles.entries === "function") {{
+                        for (const [name, content] of jsFiles.entries()) {{
+                            filesToMount.push({{
+                                name: name,
+                                data: new Blob([new TextEncoder().encode(content)])
+                            }});
+                        }}
+                    }}
+
+                    // レガシー互換: _pyowasm_upload_text を使用
+                    if ({'true' if use_legacy_upload else 'false'} && !filesToMount.some(f => f.name === "input.fasta")) {{
+                        const uploadText = globalThis._pyowasm_upload_text;
+                        if (typeof uploadText === "string") {{
+                            filesToMount.push({{
+                                name: "input.fasta",
+                                data: new Blob([new TextEncoder().encode(uploadText)])
+                            }});
+                        }}
+                    }}
+
+                    if (filesToMount.length > 0) {{
+                        log("mounting files", filesToMount.map(f => f.name));
+                        const mountedPaths = await cli.mount(filesToMount);
                         log("mountedPaths", mountedPaths);
 
-                        const mountedPath = resolveMountedPath(mountedPaths);
-                        if (!mountedPath) {{
-                            throw new Error("Aioli mount failed: could not resolve mounted path");
-                        }}
+                        const resolvePath = (val) => {{
+                            if (!val) return null;
+                            if (typeof val === "string") return val;
+                            return val.path || val.mountPath || val.file || val.name || null;
+                        }};
 
-                        // 入力ファイル名の全出現箇所をマウント先へ置換
-                        commandToExec = commandToExec.split(targetFile).join(mountedPath);
+                        for (let i = 0; i < filesToMount.length; i++) {{
+                            const originalName = filesToMount[i].name;
+                            const mountedPath = resolvePath(mountedPaths[i]);
+                            if (mountedPath) {{
+                                // コマンド内のファイル名をマウント先パスに置換
+                                // 注意: 単純な文字列置換のため、ファイル名が他の引数に含まれる場合に注意が必要
+                                commandToExec = commandToExec.split(originalName).join(mountedPath);
+                            }}
+                        }}
                         log("finalCommand", commandToExec);
                     }}
 
@@ -142,6 +146,9 @@ class BiowasmBridge:
                 }} catch (e) {{
                     log("bridgeError", e?.message || String(e));
                     return JSON.stringify({{ status: "error", message: e.message || String(e), debug: debugLogs }});
+                }} finally {{
+                    // 一時変数のクリア
+                    delete globalThis._pyowasm_files;
                 }}
             }})()
             """
@@ -172,6 +179,26 @@ class BiowasmBridge:
             py_debug.append(f"[PY] exception={str(e)}")
             trace = "\n".join(py_debug)
             return f"ブリッジ通信エラー: {str(e)}\n\n--- Debug Trace ---\n{trace}"
+
+    async def makeblastdb(self, fasta_content: str, db_name: str = "mydb", db_type: str = "prot") -> str:
+        """
+        配列データをデータベース化します。
+        """
+        input_file = f"{db_name}.fasta"
+        # BLAST+ (blast/2.11.0) を使用
+        command = f"makeblastdb -in {input_file} -dbtype {db_type} -out {db_name}"
+        return await self.run_tool("blast/2.11.0", command, files={input_file: fasta_content})
+
+    async def blastp(self, query_content: str, db_name: str, options: str = "-outfmt 6") -> str:
+        """
+        BLASTP検索を実行します。
+        TSV形式（-outfmt 6）で結果を回収します。
+        """
+        query_file = "query.fasta"
+        # 同一の Aioli インスタンス（blast/2.11.0）を再利用することで、
+        # makeblastdb で作成された DB ファイルが worker 側の VFS に残っていることを期待します。
+        command = f"blastp -query {query_file} -db {db_name} {options}"
+        return await self.run_tool("blast/2.11.0", command, files={query_file: query_content})
 
     def write_to_vfs(self, filename: str, content: str) -> str:
         """
