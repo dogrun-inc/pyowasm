@@ -66,8 +66,10 @@ async def test_biowasm_bridge_run_tool_with_files_sets_js_files(biowasm_modules)
     result = await bridge.run_tool("blast/2.11.0", "cat test.txt", files=files)
 
     assert result == "output"
-    assert biowasm_modules["js"]._pyowasm_files == files
     biowasm_modules["js"].eval.assert_awaited_once()
+    called_js = biowasm_modules["js"].eval.await_args.args[0]
+    assert "const jsFiles = globalThis._pyowasm_files;" in called_js
+    assert "delete globalThis._pyowasm_files;" in called_js
 
 
 @pytest.mark.asyncio
