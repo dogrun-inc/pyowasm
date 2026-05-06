@@ -33,7 +33,7 @@ def calculate_rbh(forward_tsv: str, reverse_tsv: str) -> pd.DataFrame:
     df_ba = get_best_hits(reverse_tsv)
 
     if df_ab.empty or df_ba.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(columns=["query_a", "query_b", "identity_a_to_b", "identity_b_to_a", "bitscore_a_to_b", "bitscore_b_to_a"])
 
     # RBHの条件: AのベストヒットがBであり、かつBのベストヒットがAであること
     # df_ab: query=A_id, subject=B_id
