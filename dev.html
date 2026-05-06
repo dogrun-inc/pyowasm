@@ -412,23 +412,6 @@ class BiowasmBridge:
             trace = "\n".join(py_debug)
             return f"ブリッジ通信エラー: {str(e)}\n\n--- Debug Trace ---\n{trace}"
 
-    async def makeblastdb(self, fasta_content: str, db_name: str = "mydb", db_type: str = "prot") -> str:
-        input_file = f"{db_name}.fasta"
-        command = (
-            f"makeblastdb -in {self._quote_cli_arg(input_file)} "
-            f"-dbtype {self._quote_cli_arg(db_type)} "
-            f"-out {self._quote_cli_arg(db_name)}"
-        )
-        return await self.run_tool("blast/2.11.0", command, files={input_file: fasta_content})
-
-    async def blastp(self, query_content: str, db_name: str, options: str = "-outfmt 6") -> str:
-        query_file = "query.fasta"
-        command = (
-            f"blastp -query {self._quote_cli_arg(query_file)} "
-            f"-db {self._quote_cli_arg(db_name)} {options}"
-        )
-        return await self.run_tool("blast/2.11.0", command, files={query_file: query_content})
-
     async def seqtk(self, command: str, files: dict[str, str] = None) -> str:
         full_command = command.strip()
         if not full_command.startswith("seqtk"):
@@ -493,37 +476,64 @@ class SeqtkTask(BaseTask):
         st.code(result)
 `;
 
-      const orthologAnalyzerCode = String.raw`import streamlit as st
+      const orthologAnalyzerCode = String.raw`import pandas as pd
+from io import StringIO
+from Bio import SeqIO
+from Bio.Align import PairwiseAligner, substitution_matrices
 from ..base import BaseTask
-from ...bridge.biowasm import bridge
-from ...core.stats import calculate_rbh
 from ...ui.components import render_rbh_results
 
 class OrthologAnalysisTask(BaseTask):
     @staticmethod
-    def _ensure_wasm_success(output: str, step_name: str) -> None:
-        if not isinstance(output, str):
-            return
-        if output.startswith("Wasm実行エラー:") or output.startswith("ブリッジ通信エラー:"):
-            raise RuntimeError(f"{step_name} でエラーが発生しました。\n{output}")
+    def _compute_best_hits(seqs_query, seqs_subject):
+        aligner = PairwiseAligner()
+        aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
+        aligner.open_gap_score = -11
+        aligner.extend_gap_score = -1
+        self_scores = {r.id: aligner.score(str(r.seq), str(r.seq)) for r in seqs_query}
+        rows = []
+        for q in seqs_query:
+            best_score = None
+            best_sid = None
+            for s in seqs_subject:
+                sc = aligner.score(str(q.seq), str(s.seq))
+                if best_score is None or sc > best_score:
+                    best_score = sc
+                    best_sid = s.id
+            if best_sid is not None:
+                ss = self_scores[q.id]
+                identity = min(best_score / ss * 100, 100.0) if ss > 0 else 0.0
+                rows.append({"query": q.id, "subject": best_sid, "identity": identity, "score": float(best_score)})
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["query", "subject", "identity", "score"])
 
-    async def run(self, sample_a: str, sample_b: str) -> any:
-        db_b_result = await bridge.makeblastdb(sample_b, db_name="sp_b", db_type="prot")
-        self._ensure_wasm_success(db_b_result, "makeblastdb (Species B)")
+    async def run(self, sample_a: str, sample_b: str):
+        empty = pd.DataFrame(columns=["query_a", "query_b", "identity_a_to_b", "identity_b_to_a", "bitscore_a_to_b", "bitscore_b_to_a"])
+        seqs_a = list(SeqIO.parse(StringIO(sample_a), "fasta"))
+        seqs_b = list(SeqIO.parse(StringIO(sample_b), "fasta"))
+        if not seqs_a or not seqs_b:
+            return empty
+        df_ab = self._compute_best_hits(seqs_a, seqs_b)
+        df_ba = self._compute_best_hits(seqs_b, seqs_a)
+        if df_ab.empty or df_ba.empty:
+            return empty
+        rbh = pd.merge(
+            df_ab, df_ba,
+            left_on=["query", "subject"],
+            right_on=["subject", "query"],
+            suffixes=("_fwd", "_rev")
+        )
+        if rbh.empty:
+            return empty
+        return rbh[["query_fwd", "subject_fwd", "identity_fwd", "identity_rev", "score_fwd", "score_rev"]].rename(columns={
+            "query_fwd": "query_a",
+            "subject_fwd": "query_b",
+            "identity_fwd": "identity_a_to_b",
+            "identity_rev": "identity_b_to_a",
+            "score_fwd": "bitscore_a_to_b",
+            "score_rev": "bitscore_b_to_a",
+        })
 
-        fwd_tsv = await bridge.blastp(sample_a, db_name="sp_b", options="-outfmt 6")
-        self._ensure_wasm_success(fwd_tsv, "blastp (A -> B)")
-
-        db_a_result = await bridge.makeblastdb(sample_a, db_name="sp_a", db_type="prot")
-        self._ensure_wasm_success(db_a_result, "makeblastdb (Species A)")
-
-        rev_tsv = await bridge.blastp(sample_b, db_name="sp_a", options="-outfmt 6")
-        self._ensure_wasm_success(rev_tsv, "blastp (B -> A)")
-
-        rbh_df = calculate_rbh(fwd_tsv, rev_tsv)
-        return rbh_df
-
-    def render(self, result: any) -> None:
+    def render(self, result) -> None:
         render_rbh_results(result)
 `;
 
@@ -653,7 +663,7 @@ async def render_ortholog_mode() -> None:
         from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
         task = OrthologAnalysisTask()
         try:
-            with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
+            with st.status("BioPython PairwiseAligner でRBH解析中...", expanded=True) as status:
                 result = await task.run(sample_a, sample_b)
                 status.update(label="解析完了!", state="complete")
             task.render(result)
