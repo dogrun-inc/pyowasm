@@ -134,15 +134,33 @@ class BiowasmBridge:
                             return val.path || val.mountPath || val.file || val.name || null;
                         }};
 
+                        const tokenizeCommand = (command) => {{
+                            const matches = command.match(/[^\s"']+|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'/g);
+                            return matches || [];
+                        }};
+
+                        const normalizeToken = (token) => {{
+                            if (token.length >= 2 && token[0] === '"' && token[token.length - 1] === '"') {{
+                                return token.slice(1, -1).replace(/\\"/g, '"');
+                            }}
+                            if (token.length >= 2 && token[0] === "'" && token[token.length - 1] === "'") {{
+                                return token.slice(1, -1).replace(/\\'/g, "'");
+                            }}
+                            return token;
+                        }};
+
+                        let commandTokens = tokenizeCommand(commandToExec);
+
                         for (let i = 0; i < filesToMount.length; i++) {{
                             const originalName = filesToMount[i].name;
                             const mountedPath = resolvePath(mountedPaths[i]);
                             if (mountedPath) {{
-                                // コマンド内のファイル名をマウント先パスに置換
-                                // 注意: 単純な文字列置換のため、ファイル名が他の引数に含まれる場合に注意が必要
-                                commandToExec = commandToExec.split(originalName).join(mountedPath);
+                                commandTokens = commandTokens.map((token) =>
+                                    normalizeToken(token) === originalName ? JSON.stringify(mountedPath) : token
+                                );
                             }}
                         }}
+                        commandToExec = commandTokens.join(" ");
                         log("finalCommand", commandToExec);
                     }}
 
