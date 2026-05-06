@@ -19,8 +19,7 @@
     <div id="root"></div>
     <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.js"></script>
     <script>
-      // src/pyowasm/models/schema.py
-      const schemaCode = `from dataclasses import dataclass
+      const schemaCode = String.raw`from dataclasses import dataclass
 from typing import List, Optional
 
 @dataclass
@@ -44,8 +43,7 @@ class AnalysisResult:
     metadata: Optional[dict] = None
 `;
 
-      // src/pyowasm/tasks/base.py
-      const baseTaskCode = `from abc import ABC, abstractmethod
+      const baseTaskCode = String.raw`from abc import ABC, abstractmethod
 from typing import Any
 from ..models.schema import AnalysisResult
 
@@ -77,8 +75,7 @@ class BaseTask(ABC):
         st.code(str(result))
 `;
 
-      // src/pyowasm/tasks/local/fasta_parser.py
-      const fastaParserCode = `from io import StringIO
+      const fastaParserCode = String.raw`from io import StringIO
 from Bio import SeqIO
 from ...models.schema import SequenceRecord, AnalysisResult
 from ..base import BaseTask
@@ -106,9 +103,8 @@ class FastaParserTask(BaseTask):
 
         first_non_empty_line = next((line for line in fasta_content.splitlines() if line.strip()), "")
         if first_non_empty_line and not first_non_empty_line.startswith(">"):
-            warnings.append("FASTAヘッダ(\`>\`)から始まっていないため、入力形式が不正の可能性があります。")
+            warnings.append("FASTAヘッダ(`>`)から始まっていないため、入力形式が不正の可能性があります。")
 
-        # StringIOを使用して文字列をファイルライクオブジェクトとして扱う
         fasta_io = StringIO(fasta_content)
 
         try:
@@ -125,8 +121,7 @@ class FastaParserTask(BaseTask):
         return AnalysisResult(records=records, metadata={"warnings": warnings})
 `;
 
-      // src/pyowasm/tasks/local/sequence_analyzer.py
-      const sequenceAnalyzerCode = `from Bio.SeqUtils import gc_fraction
+      const sequenceAnalyzerCode = String.raw`from Bio.SeqUtils import gc_fraction
 from ...models.schema import SequenceRecord, AnalysisResult
 from ..base import BaseTask
 
@@ -138,63 +133,38 @@ class SequenceAnalysisTask(BaseTask):
     def run(self, records: list[SequenceRecord]) -> AnalysisResult:
         """
         SequenceRecordのリストを受け取り、各レコードの統計情報を計算して更新する。
-
-        Args:
-            records (list[SequenceRecord]): 解析対象のレコードリスト。
-
-        Returns:
-            AnalysisResult: 統計情報が更新されたレコードを含む結果。
         """
         for record in records:
-            # GC含有量の計算
             record.gc_content = gc_fraction(record.sequence) * 100
-            
-            # 塩基組成の計算（1回走査で効率的に集計）
+
             composition: dict[str, int] = {}
             for base in record.sequence.upper():
                 if base.isalpha():
                     composition[base] = composition.get(base, 0) + 1
             record.base_composition = composition
-            
+
         return AnalysisResult(records=records)
 
     def render(self, result: AnalysisResult) -> None:
-        """
-        解析結果を表示します。
-        """
         from ...ui.components import display_sequence_stats
         display_sequence_stats(result.records)
 `;
 
-      // src/pyowasm/core/stats.py
-      const statsCode = `import pandas as pd
+      const statsCode = String.raw`import pandas as pd
 from io import StringIO
 from typing import Optional
 
 def calculate_rbh(forward_tsv: str, reverse_tsv: str) -> pd.DataFrame:
-    """
-    2つのBLAST結果（TSV形式）から、レシプロカルベストヒット（RBH）を計算します。
-
-    Args:
-        forward_tsv (str): クエリAからデータベースBへのBLAST結果。
-        reverse_tsv (str): クエリBからデータベースAへのBLAST結果。
-
-    Returns:
-        pd.DataFrame: RBHペアのデータフレーム。
-    """
-    # BLAST outfmt 6 のカラム名
     columns = [
-        "query", "subject", "identity", "alignment_length", "mismatches", 
+        "query", "subject", "identity", "alignment_length", "mismatches",
         "gap_opens", "q_start", "q_end", "s_start", "s_end", "evalue", "bitscore"
     ]
 
     def get_best_hits(tsv_content: str) -> pd.DataFrame:
         if not tsv_content.strip():
             return pd.DataFrame(columns=columns)
-        
-        df = pd.read_csv(StringIO(tsv_content), sep="\\t", names=columns)
-        # 各クエリに対して最大の bitscore を持つヒットを抽出
-        # 同点時は evalue が最小（最良）のものを優先する
+
+        df = pd.read_csv(StringIO(tsv_content), sep="\t", names=columns)
         best_hits = df.sort_values(["bitscore", "evalue"], ascending=[False, True]).drop_duplicates("query")
         return best_hits
 
@@ -204,20 +174,14 @@ def calculate_rbh(forward_tsv: str, reverse_tsv: str) -> pd.DataFrame:
     if df_ab.empty or df_ba.empty:
         return pd.DataFrame(columns=["query_a", "query_b", "identity_a_to_b", "identity_b_to_a", "bitscore_a_to_b", "bitscore_b_to_a"])
 
-    # RBHの条件: AのベストヒットがBであり、かつBのベストヒットがAであること
-    # df_ab: query=A_id, subject=B_id
-    # df_ba: query=B_id, subject=A_id
-    
-    # 内部結合で一致するペアを探す
     rbh = pd.merge(
-        df_ab, 
-        df_ba, 
-        left_on=["query", "subject"], 
+        df_ab,
+        df_ba,
+        left_on=["query", "subject"],
         right_on=["subject", "query"],
         suffixes=("_fwd", "_rev")
     )
 
-    # 必要なカラムのみ抽出して整理
     result = rbh[[
         "query_fwd", "subject_fwd", "identity_fwd", "identity_rev", "bitscore_fwd", "bitscore_rev"
     ]].rename(columns={
@@ -232,19 +196,9 @@ def calculate_rbh(forward_tsv: str, reverse_tsv: str) -> pd.DataFrame:
     return result
 
 def get_identity_stats(rbh_df: pd.DataFrame) -> dict:
-    """
-    RBHの結果からIdentityの統計情報を取得します。
-    
-    Args:
-        rbh_df (pd.DataFrame): calculate_rbh で取得したデータフレーム。
-        
-    Returns:
-        dict: 平均、中央値、カウントなどの統計。
-    """
     if rbh_df.empty:
         return {"count": 0, "mean": 0.0, "median": 0.0}
-    
-    # identity_a_to_b を統計の対象とする
+
     stats = {
         "count": len(rbh_df),
         "mean": float(rbh_df["identity_a_to_b"].mean()),
@@ -255,47 +209,34 @@ def get_identity_stats(rbh_df: pd.DataFrame) -> dict:
     return stats
 `;
 
-      // src/pyowasm/bridge/biowasm.py
-      const biowasmBridgeCode = `import js
+      const biowasmBridgeCode = String.raw`import js
 import json
 from pyodide.ffi import to_js
 
 class BiowasmBridge:
-    """
-    JavaScript側のAioliライブラリを介してWasmバイオ情報学ツールを呼び出すためのブリッジ。
-    """
-
     def __init__(self):
         self.initialized = True
 
     @staticmethod
     def _quote_cli_arg(value: str) -> str:
-        escaped = value.replace("\\\\", "\\\\\\\\").replace('"', '\\\\"')
-        return f'"{{escaped}}"'
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
 
     async def run_tool(self, tool: str, args: str, files: dict[str, str] = None) -> str:
-        """
-        Wasmツールを実行します。
-        files: {{ "filename": "content" }} の辞書。Aioliにマウントされます。
-        """
         py_debug = [
-            f"[PY] tool={{tool}}",
-            f"[PY] args={{args}}",
+            f"[PY] tool={tool}",
+            f"[PY] args={args}",
         ]
 
-        # JSに渡すためのファイルデータを一時的にグローバルに配置（eval内で参照するため）
         if files:
             js._pyowasm_files = to_js(files)
         else:
             js._pyowasm_files = None
 
         try:
-            # 入力ファイルの有無を判定
             use_legacy_upload = (not files) and ("input.fasta" in args)
-            py_debug.append(f"[PY] has_files={{bool(files) or use_legacy_upload}}")
+            py_debug.append(f"[PY] has_files={bool(files) or use_legacy_upload}")
 
-            # f-string でJSコードを組み立てる際の注入/構文崩れを防ぐため、
-            # 外部入力は JSON 文字列リテラルとして埋め込む。
             tool_js = json.dumps(tool, ensure_ascii=False)
             args_js = json.dumps(args, ensure_ascii=False)
             legacy_upload_js = "true" if use_legacy_upload else "false"
@@ -321,12 +262,11 @@ class BiowasmBridge:
                 }};
 
                 try {{
-                    const toolName = {{tool_js}};
-                    const rawArgs = {{args_js}};
+                    const toolName = {tool_js};
+                    const rawArgs = {args_js};
 
                     log("start", {{ tool: toolName, args: rawArgs }});
 
-                    // 1. Aioli ロード
                     if (typeof Aioli === 'undefined') {{
                         log("Aioli not found, trying dynamic import");
                         try {{
@@ -352,7 +292,6 @@ class BiowasmBridge:
                          throw new Error("Aioli could not be loaded as a constructor.");
                     }}
 
-                    // 2. 初期化
                     if (!globalThis._pyowasm_clis) globalThis._pyowasm_clis = {{}};
                     if (!globalThis._pyowasm_clis[toolName]) {{
                         log("creating new Aioli instance", toolName);
@@ -361,7 +300,6 @@ class BiowasmBridge:
                     const cli = globalThis._pyowasm_clis[toolName];
                     log("cli ready", !!cli);
 
-                    // 3. マウント処理
                     let commandToExec = rawArgs;
                     const filesToMount = [];
                     const jsFiles = globalThis._pyowasm_files;
@@ -375,8 +313,7 @@ class BiowasmBridge:
                         }}
                     }}
 
-                    // レガシー互換: _pyowasm_upload_text を使用
-                    if ({{legacy_upload_js}} && !filesToMount.some(f => f.name === "input.fasta")) {{
+                    if ({legacy_upload_js} && !filesToMount.some(f => f.name === "input.fasta")) {{
                         const uploadText = globalThis._pyowasm_upload_text;
                         if (typeof uploadText === "string") {{
                             filesToMount.push({{
@@ -398,22 +335,22 @@ class BiowasmBridge:
                         }};
 
                         const tokenizeCommand = (command) => {{
-                            const matches = command.match(/[^\\\\s"']+|"(?:\\\\\\\\.|[^"])*"|'(?:\\\\\\\\.|[^'])*'/g);
+                            const matches = command.match(/[^\s"']+|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'/g);
                             return matches || [];
                         }};
 
                         const normalizeToken = (token) => {{
                             if (token.length >= 2 && token[0] === '"' && token[token.length - 1] === '"') {{
-                                return token.slice(1, -1).replace(/\\\\"/g, '"');
+                                return token.slice(1, -1).replace(/\\"/g, '"');
                             }}
                             if (token.length >= 2 && token[0] === "'" && token[token.length - 1] === "'") {{
-                                return token.slice(1, -1).replace(/\\\\'/g, "'");
+                                return token.slice(1, -1).replace(/\\'/g, "'");
                             }}
                             return token;
                         }};
 
                         const formatPathToken = (path) => {{
-                            if (/\\\\s/.test(path)) {{
+                            if (/\s/.test(path)) {{
                                 return JSON.stringify(path);
                             }}
                             return path;
@@ -443,18 +380,17 @@ class BiowasmBridge:
                     log("bridgeError", e?.message || String(e));
                     return JSON.stringify({{ status: "error", message: e.message || String(e), debug: debugLogs }});
                 }} finally {{
-                    // 一時変数のクリア
                     delete globalThis._pyowasm_files;
                 }}
             }})()
             """
-            
+
             js_response_json = await js.eval(js_code)
-            py_debug.append(f"[PY] js_response_json={{js_response_json}}")
+            py_debug.append(f"[PY] js_response_json={js_response_json}")
             response = json.loads(js_response_json)
             js_debug = response.get("debug") or []
-            trace = "\\\\n".join(py_debug + [f"[JS] {{line}}" for line in js_debug])
-            
+            trace = "\n".join(py_debug + [f"[JS] {line}" for line in js_debug])
+
             if response["status"] == "success":
                 data = response.get("data")
                 if isinstance(data, dict):
@@ -464,65 +400,49 @@ class BiowasmBridge:
 
                     if exit_code not in (None, 0):
                         message = stderr or stdout or str(data)
-                        return f"Wasm実行エラー: {{message}}\\\\n\\\\n--- Debug Trace ---\\\\n{{trace}}"
+                        return f"Wasm実行エラー: {message}\n\n--- Debug Trace ---\n{trace}"
                     return stdout or stderr or json.dumps(data, ensure_ascii=False)
 
                 return str(data)
             else:
-                return f"Wasm実行エラー: {{response['message']}}\\\\n\\\\n--- Debug Trace ---\\\\n{{trace}}"
-            
+                return f"Wasm実行エラー: {response['message']}\n\n--- Debug Trace ---\n{trace}"
+
         except Exception as e:
-            py_debug.append(f"[PY] exception={{str(e)}}")
-            trace = "\\\\n".join(py_debug)
-            return f"ブリッジ通信エラー: {{str(e)}}\\\\n\\\\n--- Debug Trace ---\\\\n{{trace}}"
+            py_debug.append(f"[PY] exception={str(e)}")
+            trace = "\n".join(py_debug)
+            return f"ブリッジ通信エラー: {str(e)}\n\n--- Debug Trace ---\n{trace}"
 
     async def makeblastdb(self, fasta_content: str, db_name: str = "mydb", db_type: str = "prot") -> str:
-        """
-        配列データをデータベース化します。
-        """
-        input_file = f"{{db_name}}.fasta"
-        # BLAST+ (blast/2.11.0) を使用
+        input_file = f"{db_name}.fasta"
         command = (
-            f"makeblastdb -in {{self._quote_cli_arg(input_file)}} "
-            f"-dbtype {{self._quote_cli_arg(db_type)}} "
-            f"-out {{self._quote_cli_arg(db_name)}}"
+            f"makeblastdb -in {self._quote_cli_arg(input_file)} "
+            f"-dbtype {self._quote_cli_arg(db_type)} "
+            f"-out {self._quote_cli_arg(db_name)}"
         )
-        return await self.run_tool("blast/2.11.0", command, files={{input_file: fasta_content}})
+        return await self.run_tool("blast/2.11.0", command, files={input_file: fasta_content})
 
     async def blastp(self, query_content: str, db_name: str, options: str = "-outfmt 6") -> str:
-        """
-        BLASTP検索を実行します。
-        TSV形式（-outfmt 6）で結果を回収します。
-        """
         query_file = "query.fasta"
-        # 同一の Aioli インスタンス（blast/2.11.0）を再利用することで、
-        # makeblastdb で作成された DB ファイルが worker 側の VFS に残っていることを期待します。
         command = (
-            f"blastp -query {{self._quote_cli_arg(query_file)}} "
-            f"-db {{self._quote_cli_arg(db_name)}} {{options}}"
+            f"blastp -query {self._quote_cli_arg(query_file)} "
+            f"-db {self._quote_cli_arg(db_name)} {options}"
         )
-        return await self.run_tool("blast/2.11.0", command, files={{query_file: query_content}})
+        return await self.run_tool("blast/2.11.0", command, files={query_file: query_content})
 
     async def seqtk(self, command: str, files: dict[str, str] = None) -> str:
-        """
-        seqtkを実行します。
-        """
         full_command = command.strip()
         if not full_command.startswith("seqtk"):
-            full_command = f"seqtk {{full_command}}"
+            full_command = f"seqtk {full_command}"
         return await self.run_tool("seqtk/1.3", full_command, files=files)
 
     def write_to_vfs(self, filename: str, content: str) -> str:
-        """
-        Python側の文字列データをEmscriptenの仮想FSに書き出します。
-        """
         try:
             js.FS.writeFile(filename, content)
             js._pyowasm_upload_text = content
-            js.console.log(f"[Pyowasm] File written to VFS: {{filename}} ({{len(content)}} bytes)")
+            js.console.log(f"[Pyowasm] File written to VFS: {filename} ({len(content)} bytes)")
             return filename
         except Exception as e:
-            js.console.error(f"[Pyowasm] Failed to write to VFS: {{str(e)}}")
+            js.console.error(f"[Pyowasm] Failed to write to VFS: {str(e)}")
             js._pyowasm_upload_text = content
             import os
             os.makedirs(os.path.dirname(filename) if os.path.dirname(filename) else ".", exist_ok=True)
@@ -533,31 +453,30 @@ class BiowasmBridge:
 bridge = BiowasmBridge()
 `;
 
-      // src/pyowasm/tasks/wasm/seqtk.py
-      const seqtkTaskCode = `import streamlit as st
+      const seqtkTaskCode = String.raw`import streamlit as st
+from typing import Optional
 from ..base import BaseTask
 from ...bridge.biowasm import bridge
 
 class SeqtkTask(BaseTask):
-    """
-    Wasm版 seqtk を使用して配列処理を行うタスク。
-    """
-
-    async def run(self, input_filename: str, command: str = "seq -a") -> str:
-        """
-        seqtkを実行します。
-        """
+    async def run(
+        self,
+        input_filename: str,
+        command: str = "seq -a",
+        input_content: Optional[str] = None,
+    ) -> str:
         full_command = command.strip()
         if input_filename not in full_command.split():
             full_command = f"{full_command} {input_filename}"
 
-        result = await bridge.seqtk(full_command)
+        files = None
+        if input_content is not None:
+            files = {input_filename: input_content}
+
+        result = await bridge.seqtk(full_command, files=files)
         return result
 
     def render(self, result: str) -> None:
-        """
-        seqtkの実行結果を表示します。
-        """
         st.write("### Seqtk 出力")
         if result.startswith("Wasm実行エラー:") or result.startswith("ブリッジ通信エラー:"):
             st.error("Wasm(seqtk) 実行でエラーが発生しました。")
@@ -574,58 +493,49 @@ class SeqtkTask(BaseTask):
         st.code(result)
 `;
 
-      // src/pyowasm/tasks/wasm/ortholog_analyzer.py
-      const orthologAnalyzerCode = `import streamlit as st
+      const orthologAnalyzerCode = String.raw`import streamlit as st
 from ..base import BaseTask
 from ...bridge.biowasm import bridge
 from ...core.stats import calculate_rbh
 from ...ui.components import render_rbh_results
 
 class OrthologAnalysisTask(BaseTask):
-    """
-    Wasm-BLAST を使用して 2 種間のオーソログ解析（RBH）を行うタスク。
-    """
+    @staticmethod
+    def _ensure_wasm_success(output: str, step_name: str) -> None:
+        if not isinstance(output, str):
+            return
+        if output.startswith("Wasm実行エラー:") or output.startswith("ブリッジ通信エラー:"):
+            raise RuntimeError(f"{step_name} でエラーが発生しました。\n{output}")
 
     async def run(self, sample_a: str, sample_b: str) -> any:
-        """
-        RBH パイプラインを実行します。
-        """
-        # 1. Species B の DB 作成
-        await bridge.makeblastdb(sample_b, db_name="sp_b", db_type="prot")
-        
-        # 2. A -> B 検索
+        db_b_result = await bridge.makeblastdb(sample_b, db_name="sp_b", db_type="prot")
+        self._ensure_wasm_success(db_b_result, "makeblastdb (Species B)")
+
         fwd_tsv = await bridge.blastp(sample_a, db_name="sp_b", options="-outfmt 6")
-        
-        # 3. Species A の DB 作成
-        await bridge.makeblastdb(sample_a, db_name="sp_a", db_type="prot")
-        
-        # 4. B -> A 検索
+        self._ensure_wasm_success(fwd_tsv, "blastp (A -> B)")
+
+        db_a_result = await bridge.makeblastdb(sample_a, db_name="sp_a", db_type="prot")
+        self._ensure_wasm_success(db_a_result, "makeblastdb (Species A)")
+
         rev_tsv = await bridge.blastp(sample_b, db_name="sp_a", options="-outfmt 6")
-        
-        # 5. RBH 計算
+        self._ensure_wasm_success(rev_tsv, "blastp (B -> A)")
+
         rbh_df = calculate_rbh(fwd_tsv, rev_tsv)
         return rbh_df
 
     def render(self, result: any) -> None:
-        """
-        解析結果を表示します。
-        """
         render_rbh_results(result)
 `;
 
-      // src/pyowasm/ui/components.py
-      const uiComponentsCode = `import streamlit as st
+      const uiComponentsCode = String.raw`import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from typing import List, Dict
+from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
 
 def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
-    """
-    RBHの結果を可視化するグラフを生成・表示します。
-    """
     if rbh_df.empty:
         st.warning("表示するデータがありません。")
         return
@@ -642,37 +552,32 @@ def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
 
     with col2:
         st.write("### ドットプロット (Synteny)")
-        # インデックスに基づく簡易的なドットプロット
-        # クエリ名をソートして並べることで大まかな傾向を見る
         plot_df = rbh_df.copy()
         plot_df = plot_df.sort_values(["query_a", "query_b"])
-        
+
         fig, ax = plt.subplots()
         sns.scatterplot(
-            data=plot_df, 
-            x="query_a", 
-            y="query_b", 
-            size="bitscore_a_to_b", 
+            data=plot_df,
+            x="query_a",
+            y="query_b",
+            size="bitscore_a_to_b",
             hue="identity_a_to_b",
             ax=ax,
             legend=False,
             alpha=0.6
         )
-        ax.set_xticks([]) # ラベルが多いと重なるため非表示
+        ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xlabel("Species A Genes")
         ax.set_ylabel("Species B Genes")
         st.pyplot(fig)
 
 def render_rbh_results(rbh_df: pd.DataFrame) -> None:
-    """
-    RBH解析の結果サマリーとグラフを表示します。
-    """
     st.divider()
     st.header("📊 オーソログ解析結果 (RBH)")
 
     stats = get_identity_stats(rbh_df)
-    
+
     if stats["count"] == 0:
         st.warning("オーソログが見つかりませんでした。")
         return
@@ -688,9 +593,6 @@ def render_rbh_results(rbh_df: pd.DataFrame) -> None:
         st.dataframe(rbh_df)
 
 def render_analysis_mode() -> None:
-    """
-    配列統計解析モードのUIを表示します。
-    """
     st.subheader("📊 配列統計解析")
     st.info("BioPythonを使用して、アップロードされたFASTAファイルの基本統計を計算します。")
 
@@ -716,34 +618,30 @@ def render_analysis_mode() -> None:
         display_sequence_stats(analysis_result.records)
 
 async def render_seqtk_mode() -> None:
-    """
-    Seqtk実行モードのUIを表示します。
-    """
     st.subheader("🔧 Wasm ツール実行 (Seqtk)")
     st.markdown("""
-    JS/Wasm ブリッジを介して、ブラウザ内で \`seqtk\` を直接実行します。
+    JS/Wasm ブリッジを介して、ブラウザ内で `seqtk` を直接実行します。
     """)
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
     vfs_path = "input.fasta"
+    input_content = None
 
     if uploaded_file:
-        bridge.write_to_vfs(vfs_path, uploaded_file.getvalue().decode("utf-8"))
+        input_content = uploaded_file.getvalue().decode("utf-8")
+        bridge.write_to_vfs(vfs_path, input_content)
 
-    await display_biowasm_ui(vfs_path)
+    await display_biowasm_ui(vfs_path, input_content=input_content)
 
 async def render_ortholog_mode() -> None:
-    """
-    オーソログ解析デモモードのUIを表示します。
-    """
     st.subheader("🧪 コーヒー品種間オーソログ解析デモ")
     st.markdown("""
     アラビカ種 vs ロブスタ種。
     Wasm 上で RBH 解析パイプラインを実行します。
     """)
 
-    sample_a = ">arabica_P1 caffeine_synthase\\\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\\\n>arabica_P2 coffee_aroma\\\\nMAQTQGTRKVCYYYDRKGRRKSRKPRK"
-    sample_b = ">robusta_P1 caffeine_synthase\\\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\\\n>robusta_P3 unexpected_hit\\\\nMAQTQGTRKVCYYYDRKGRRKSRK"
+    sample_a = ">arabica_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>arabica_P2 coffee_aroma\\nMAQTQGTRKVCYYYDRKGRRKSRKPRK"
+    sample_b = ">robusta_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>robusta_P3 unexpected_hit\\nMAQTQGTRKVCYYYDRKGRRKSRK"
 
     col1, col2 = st.columns(2)
     with col1:
@@ -754,15 +652,15 @@ async def render_ortholog_mode() -> None:
     if st.button("RBHパイプラインを実行"):
         from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
         task = OrthologAnalysisTask()
-        with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
-            result = await task.run(sample_a, sample_b)
-            status.update(label="解析完了!", state="complete")
-        task.render(result)
+        try:
+            with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
+                result = await task.run(sample_a, sample_b)
+                status.update(label="解析完了!", state="complete")
+            task.render(result)
+        except Exception as e:
+            st.error(f"RBH解析でエラーが発生しました: {e}")
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
-    """
-    配列の統計情報を表示する。
-    """
     st.subheader("解析結果サマリー")
     col1, col2, col3 = st.columns(3)
     col1.metric("配列数", len(records))
@@ -777,17 +675,14 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
         st.divider()
         st.subheader("詳細解析")
 
-        # 配列長の分布
         st.write("### 配列長の分布")
         lengths = [r.length for r in records]
         st.bar_chart(lengths)
 
-        # GC含有量の分布 (%)
         st.write("### GC含有量の分布 (%)")
         gc_contents = [r.gc_content for r in records]
         st.line_chart(gc_contents)
 
-        # 個別レコードの塩基組成
         if len(records) == 1:
             st.write("### 塩基組成")
             comp = records[0].base_composition
@@ -795,34 +690,25 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 df_comp = pd.DataFrame(list(comp.items()), columns=["Base", "Count"])
                 st.bar_chart(df_comp.set_index("Base"))
 
-
-async def display_biowasm_ui(input_filename: str) -> None:
-    """
-    Wasmバイオ情報学ツールを操作するためのUIを表示する。
-
-    Args:
-        input_filename (str): 入力ファイルのパス（VFS内）。
-    """
+async def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: \`{input_filename}\`")
+    st.write(f"VFS内のファイルを処理します: `{input_filename}`")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
 
     if selected_tool == "seqtk":
         command = st.text_input("コマンド引数", value="seq -a")
-        
         result_container = st.container()
-        
+
         if st.button("Wasmで実行"):
             from ..tasks.wasm.seqtk import SeqtkTask
-            
+
             try:
                 task = SeqtkTask()
                 with st.spinner(f"{selected_tool} を実行中..."):
-                    # 直接 await を使用して結果を待機する
-                    result = await task.run(input_filename, command)
+                    result = await task.run(input_filename, command, input_content=input_content)
 
                 with result_container:
                     task.render(result)
@@ -831,9 +717,6 @@ async def display_biowasm_ui(input_filename: str) -> None:
                     st.error(f"実行エラー: {str(e)}")
 
 def display_header() -> None:
-    """
-    アプリケーションのヘッダーとブランディングを表示する。
-    """
     st.title("🧬 Pyowasm")
     st.caption("Python × WebAssembly × Bioinformatics")
 
@@ -844,21 +727,18 @@ def display_header() -> None:
     """)
 `;
 
-      // src/pyowasm/app.py
-      const appCode = `import streamlit as st
+      const appCode = String.raw`import streamlit as st
 from pyowasm.ui.components import (
-    display_header, 
-    render_analysis_mode, 
-    render_seqtk_mode, 
+    display_header,
+    render_analysis_mode,
+    render_seqtk_mode,
     render_ortholog_mode
 )
 
 st.set_page_config(page_title="Pyowasm", page_icon="🧬", layout="wide")
 
-# ヘッダー表示
 display_header()
 
-# サイドバーでの機能選択
 st.sidebar.title("🛠️ 分析メニュー")
 mode = st.sidebar.radio(
     "実行するタスクを選択:",
