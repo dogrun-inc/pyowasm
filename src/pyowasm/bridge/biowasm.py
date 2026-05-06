@@ -10,6 +10,11 @@ class BiowasmBridge:
     def __init__(self):
         self.initialized = True
 
+    @staticmethod
+    def _quote_cli_arg(value: str) -> str:
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+
     async def run_tool(self, tool: str, args: str, files: dict[str, str] = None) -> str:
         """
         Wasmツールを実行します。
@@ -219,7 +224,11 @@ class BiowasmBridge:
         """
         input_file = f"{db_name}.fasta"
         # BLAST+ (blast/2.11.0) を使用
-        command = f"makeblastdb -in {input_file} -dbtype {db_type} -out {db_name}"
+        command = (
+            f"makeblastdb -in {self._quote_cli_arg(input_file)} "
+            f"-dbtype {self._quote_cli_arg(db_type)} "
+            f"-out {self._quote_cli_arg(db_name)}"
+        )
         return await self.run_tool("blast/2.11.0", command, files={input_file: fasta_content})
 
     async def blastp(self, query_content: str, db_name: str, options: str = "-outfmt 6") -> str:
@@ -230,7 +239,10 @@ class BiowasmBridge:
         query_file = "query.fasta"
         # 同一の Aioli インスタンス（blast/2.11.0）を再利用することで、
         # makeblastdb で作成された DB ファイルが worker 側の VFS に残っていることを期待します。
-        command = f"blastp -query {query_file} -db {db_name} {options}"
+        command = (
+            f"blastp -query {self._quote_cli_arg(query_file)} "
+            f"-db {self._quote_cli_arg(db_name)} {options}"
+        )
         return await self.run_tool("blast/2.11.0", command, files={query_file: query_content})
 
     async def seqtk(self, command: str, files: dict[str, str] = None) -> str:

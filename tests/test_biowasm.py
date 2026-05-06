@@ -94,7 +94,7 @@ async def test_biowasm_bridge_makeblastdb_builds_command_and_files(biowasm_modul
     assert result == "makeblastdb done"
     bridge.run_tool.assert_awaited_once_with(
         "blast/2.11.0",
-        "makeblastdb -in coffee_db.fasta -dbtype prot -out coffee_db",
+        'makeblastdb -in "coffee_db.fasta" -dbtype "prot" -out "coffee_db"',
         files={"coffee_db.fasta": fasta_content},
     )
 
@@ -111,7 +111,7 @@ async def test_biowasm_bridge_blastp_builds_command_and_files(biowasm_modules):
     assert result == "q1\ts1\t99.0"
     bridge.run_tool.assert_awaited_once_with(
         "blast/2.11.0",
-        "blastp -query query.fasta -db coffee_db -outfmt 6 -evalue 1e-5",
+        'blastp -query "query.fasta" -db "coffee_db" -outfmt 6 -evalue 1e-5',
         files={"query.fasta": query_content},
     )
 
@@ -125,7 +125,21 @@ async def test_biowasm_bridge_blastp_uses_default_options(biowasm_modules):
 
     bridge.run_tool.assert_awaited_once_with(
         "blast/2.11.0",
-        "blastp -query query.fasta -db coffee_db -outfmt 6",
+        'blastp -query "query.fasta" -db "coffee_db" -outfmt 6',
+        files={"query.fasta": ">query1\nMKT"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_blastp_quotes_db_name_with_spaces(biowasm_modules):
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    bridge.run_tool = AsyncMock(return_value="")
+
+    await bridge.blastp(">query1\nMKT", db_name="coffee db")
+
+    bridge.run_tool.assert_awaited_once_with(
+        "blast/2.11.0",
+        'blastp -query "query.fasta" -db "coffee db" -outfmt 6',
         files={"query.fasta": ">query1\nMKT"},
     )
 
