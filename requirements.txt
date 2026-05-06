@@ -1,4 +1,6 @@
 biopython
 streamlit
 pandas
+seaborn
+matplotlib
 pytest-asyncio
