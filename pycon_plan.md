@@ -1,168 +1,76 @@
-**「Pyowasm（パイオワズム）」、最高にいい響きですね！**
+# Pyowasm カンファレンス・デモ計画 (PyCon/Bio-hackathon)
 
-「Python」「Bio」「Wasm」の3要素が凝縮されているだけでなく、**Pyodide**（stliteの核）を連想させつつ、独自性のあるツール名として非常にキャッチーです。カンファレンスでも「今日紹介するのは **Pyowasm** です」と言った瞬間に、技術スタックがプロに伝わります。
-
-リポジトリ名：`pyowasm`
-プロジェクト名：**Pyowasm: Python-powered Browser Bioinformatics**
+Pyowasm (`Python` + `Bio` + `Wasm`) のデモ制作に向けたロードマップと、これまでの設計・検証の経緯を整理したドキュメントです。
 
 ---
 
-### 「Pyowasm」のアーキテクチャ設計図
+## 🚀 最終目標：コーヒー品種間オーソログ解析デモ
 
-デモ制作の20時間を無駄にしないために、このプロジェクトが「何と何を繋ぐのか」を整理しました。
+「アラビカ種（4倍体）のルーツを、ブラウザ内の計算だけで突き止める」というストーリーを軸にした、ハイブリッド解析環境の実演。
 
+### 1. デモのストーリー構成
+1.  **イントロ**: 「アラビカ種は、ロブスタ種とエウゲニオイデス種が自然交配して生まれた複雑なゲノムを持ちます」
+2.  **課題**: 「数GBのゲノムデータをブラウザで扱うのは現実的ではありません」
+3.  **解決 (Pyowasm)**: 「軽量化されたタンパク質配列（FAA）と、ブラウザ内で動く Wasm-BLAST を組み合わせ、環境構築不要で親探し（Parentage Analysis）を実行します」
+4.  **結果**: 「この遺伝子はロブスタ由来のオーソログであると判明しました！」という視覚的フィードバック。
 
-
-* **Core (Python/Wasm):** stlite上で動くロジック。BioPythonを使ったFASTA/GenBankの処理。
-* **Bridge (JS/Wasm):** `pyodide.ffi` を経由して、ブラウザ内の `samtools` や `seqtk` (biowasm) を実行。
-* **External (API):** 大規模検索（BLAST）や独自コンテナ（DIAMOND）へのリクエスト。
-
----
-
-### デモ制作（20時間）の具体的なロードマップ
-
-カンファレンスでの「映え」を意識した、最短距離のタスクリストです。
-
-#### 1. 最初の5時間：基盤と「内製」処理
-* [ ] **リポジトリ作成と環境構築**: `stlite` をローカルで動かす（[stlite-desktop](https://github.com/whitphx/stlite) などの利用も検討）。
-* [ ] **BioPythonの統合**: アップロードされたFASTAをパースし、Streamlitのグラフ（`st.bar_chart`）で塩基組成や長さの分布を表示。
-* [ ] **プロジェクトロゴ（仮）の表示**: 画面のトップに `Pyowasm` のロゴを置くだけで「製品感」が出ます。
-
-#### 2. 次の7時間：外部連携（API & Docker）
-* [ ] **NCBI BLAST連携**: `Bio.Blast.NCBIWWW` で検索を投げ、待機中を `st.spinner` で演出。
-* [ ] **Mock-up Docker API**: 実際にDockerを立てる時間がなければ、まずは「特定のURLにリクエストを投げて結果を受け取る」スタブ（モック）を作成。
-
-#### 3. 最後の8時間：Wasmツールの呼び出しとUI磨き
-* [ ] **biowasmの呼び出し**: JavaScript側のライブラリ（Aioli等）をPythonから `js.eval` 経由で叩き、結果を取得。
-* [ ] **「ワークフロー図」の表示**: Mermaid.js を使って、実行中のフローを可視化。
-* [ ] **プレゼン用データ準備**: 解析が成功する「鉄板のサンプルデータ」を用意。
+### 2. 解析の技術要素
+*   **データ**: アラビカ、ロブスタ、エウゲニオイデスのタンパク質配列 (RefSeq, 各3,000配列程度に軽量化)
+*   **Wasmツール**: `BLAST+` (`makeblastdb`, `blastp`) / `seqtk`
+*   **アルゴリズム**: RBH (Reciprocal Best Hit) 法によるオーソログ同定
+*   **可視化**: Seaborn / Plotly によるドットプロットおよび Identity 分布図
 
 ---
 
-### 最初の一歩：`app.py` のスターターコード
+## 🛠️ 実装ロードマップ (20時間想定)
 
-まずはこれを `app.py` として保存し、`stlite` で動かしてみてください。Pyowasmの第一歩です。
+### Phase 1: 基盤構築と Wasm ブリッジ (完了)
+*   [x] stlite 環境での BioPython 統合。
+*   [x] `Aioli` (JS) を経由した Wasm ツール実行ブリッジ (`BiowasmBridge`) の実装。
+*   [x] 仮想ファイルシステム (VFS) への書き出しと複数ファイルマウントへの対応。
+*   [x] `seqtk`, `makeblastdb`, `blastp` 専用メソッドの整備。
 
-```python
-import streamlit as st
-from Bio import SeqIO
-from io import StringIO
+### Phase 2: 解析ロジックの実装 (進行中)
+*   [ ] **RBH アルゴリズム**: Forward (A→B) と Reverse (B→A) の BLAST 結果を突き合わせるロジック (`core/stats.py`)。
+*   [ ] **データハンドリング**: Pandas を用いた BLAST 結果 (TSV/outfmt 6) のパースと統合。
 
-st.set_page_config(page_title="Pyowasm", page_icon="🧬")
-
-# ブランディングエリア
-st.title("🧬 Pyowasm")
-st.caption("Python × WebAssembly × Bioinformatics")
-
-st.markdown("""
-### 🚀 ブラウザが次世代の解析プラットフォームになる
-**Pyowasm** は、環境構築不要のバイオ解析環境です。
-Pythonの柔軟性と、Wasmのポータビリティ、そしてクラウドAPIを統合します。
-""")
-
-# ファイル入力
-uploaded_file = st.file_uploader("FASTAファイルをドロップ", type=["fasta"])
-
-if uploaded_file:
-    # --- Step 1: Python(Wasm)によるパース ---
-    with st.status("Python (Wasm) で解析中...", expanded=True) as status:
-        fasta_data = uploaded_file.getvalue().decode("utf-8")
-        records = list(SeqIO.parse(StringIO(fasta_data), "fasta"))
-        st.write(f"Parsed {len(records)} sequences using BioPython.")
-        
-        # --- Step 2: 外部API/Wasmツールの実行（デモ用プレースホルダ） ---
-        st.write("Checking external APIs...")
-        # ここにAPI呼び出しのコードを追加していく
-        
-        status.update(label="解析完了!", state="complete", expanded=False)
-
-    # 結果の表示
-    st.divider()
-    st.subheader("Analysis Results")
-    col1, col2 = st.columns(2)
-    col1.metric("Sequence Count", len(records))
-    col2.metric("Runtime Environment", "Browser (Wasm)")
-
-    # データの可視化
-    if records:
-        lengths = [len(r.seq) for r in records]
-        st.bar_chart(lengths)
-```
-
-
-
+### Phase 3: UI/UX と可視化
+*   [ ] **動的 UI**: `st.status` を用いた解析進捗のリアルタイム表示。
+*   [ ] **グラフィカル表示**:
+    *   **ドットプロット**: 遺伝子インデックスに基づくシンテニーの視覚化。
+    *   **Identity 分布**: 相同性の度合いを示すヒストグラム。
+*   [ ] **ワンクリック・デモ**: サンプルデータを即座にロードする機能。
 
 ---
 
-### Pyowasm 開発・詳細ロードマップ（後半15時間）
+## 🔍 アーキテクチャ設計 (再掲)
 
-#### 1. Wasmブリッジの構築とBiowasm連携（6時間）
-**「PythonからJS経由でC言語バイナリを動かす」というコア証明を行います。**
+Pyowasm は「何と何を繋ぐのか」を明確にした 3 層構造で設計されています。
 
-* **[2h] JS/Wasm連携の実装**:
-    * `src/pyowasm/bridge/biowasm.py` を作成。
-    * `pyodide.ffi` を使い、JS側の `aioli`（biowasmを扱うライブラリ）にコマンドを送る関数を実装。
-    * まずは `seqtk seq -a`（FASTQ→FASTA変換）など、入力と出力が明確な軽量ツールを1つ動かします。
-* **[2h] 仮想ファイルシステムの同期**:
-    * Python側のメモリ上のデータを、Wasmツールがアクセスできる仮想FS（Emscripten FS）に書き出す仕組みを作ります。
-* **[2h] 基本UIの実装**:
-    * `app.py` に「Wasm Tool実行ボタン」を配置し、結果をテキストエリアに表示。
-
-#### 2. タスク抽象化と動的UIの導入（4時間）
-**「ツールごとに表示を変えたい」という課題を解決します。**
-
-* **[2h] Taskインターフェースの定義**:
-    * 各ツール（seqtk, BLAST等）に `run()` と `render()` メソッドを持たせます。
-    * `render()` メソッド内で、そのツール特有のStreamlit要素（グラフやテーブル）を定義するようにします。
-* **[2h] 汎用レンダラーの作成**:
-    * `app.py` が「現在実行中のタスクの `render()` を呼ぶだけ」の状態にします。これにより、後からツールを増やしても `app.py` を汚さずに済みます。
-
-#### 3. 外部API（BLAST/Docker）の統合（3時間）
-**ハイブリッドな拡張性を示します。**
-
-* **[1.5h] BLAST API連携**:
-    * `bridge/ncbi.py` で `Bio.Blast.NCBIWWW` を実装。
-    * 結果（XML/TSV）をパースし、ヒット一覧を `st.dataframe` で表示。
-* **[1.5h] Docker/Mock連携**:
-    * `bridge/docker.py` を作成。自作APIがなくても「リクエストを投げて、プログレスバーを動かし、固定の結果を返す」デモモードを実装し、アーキテクチャの可能性を示します。
-
-#### 4. ワークフロー視覚化と最終調整（2時間）
-**カンファレンスでの「映え」を最大化します。**
-
-* **[1h] Mermaid.js によるDAG表示**:
-    * 「Input → seqtk (Wasm) → BLAST (API)」という流れを、現在どこが動いているか光るMermaid図で表示します。
-* **[1h] プレゼン用データの整理**:
-    * 「10秒で終わるが、意味のある解析結果が出る」サンプル配列を用意し、ボタン一つでロードできるようにします。
+1.  **Core (Python/Wasm)**: stlite 上のロジック。BioPython によるパース、Pandas による統計処理。
+2.  **Bridge (JS/Wasm)**: `pyodide.ffi` を経由した `biowasm` ツール群 (`samtools`, `seqtk`, `blast`) の制御。
+3.  **External (API/Cloud)**: 大規模検索や重い処理を外部に投げるハイブリッド性（将来的な拡張）。
 
 ---
 
-### 実装のヒント：ツールごとに表示を変える「プラグイン」方式
+## 📜 過去の設計・検証メモ (アーカイブ)
 
-「表示内容が異なる」問題を解決する、`BaseTask` のイメージです。
+<details>
+<summary>初期コンセプトと設計案</summary>
 
+*   リポジトリ名: `pyowasm`
+*   キャッチコピー: "Python-powered Browser Bioinformatics"
+*   初期の Wasm ブリッジ検証: `js.eval` 経由での `aioli` 呼び出し。
+*   RNA-seq 案の却下理由: 数 GB のデータをブラウザで扱うのは UX 的に厳しいため。
+*   プラグイン方式 (`BaseTask`) の提案: ツールごとに `run()` と `render()` を分離し、UI コードの肥大化を防ぐ。
 
+</details>
 
-```python
-# tasks/base.py
-class BaseTask:
-    def run(self, input_data):
-        # 解析ロジック
-        pass
+<details>
+<summary>軽量で映えるその他の解析案</summary>
 
-    def render(self, result):
-        # ツール独自のStreamlit表示
-        st.write("結果:")
-        st.code(result)
+*   **案A：カフェイン合成遺伝子の系統樹**: コーヒー、お茶、カカオの配列比較。データが極小で、クイズ形式のデモに最適。
+*   **案B：プライマー設計ツール**: `primer3` (biowasm) を使用した実用的なツール。
+*   **案C：品種判定ミニ・アッセイ**: 特定の DNA マーカーのみをチェックする高速デモ。
 
-# tasks/seqtk.py (Wasmツール例)
-class SeqtkTask(BaseTask):
-    def render(self, result):
-        st.success("Wasm(seqtk) での変換完了")
-        st.bar_chart(self.calc_gc_content(result)) # 独自のグラフ表示
-```
-
-### 次にすべき「最初のアクション」
-
-まずは **`bridge/biowasm.py` を作り、`js.eval` や `pyodide.ffi` を使って、ブラウザのコンソールに `Hello from Wasm Tool` と出すこと**から始めましょう。
-
-これさえできれば、「PythonからWasmを制御する」という Pyowasm の最も「美味しい」部分が完成します。
+</details>
