@@ -650,8 +650,14 @@ async def render_ortholog_mode() -> None:
     Wasm 上で RBH 解析パイプラインを実行します。
     """)
 
-    sample_a = ">arabica_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>arabica_P2 coffee_aroma\\nMAQTQGTRKVCYYYDRKGRRKSRKPRK"
-    sample_b = ">robusta_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>robusta_P3 unexpected_hit\\nMAQTQGTRKVCYYYDRKGRRKSRK"
+    sample_a = """>arabica_P1 caffeine_synthase
+MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
+>arabica_P2 coffee_aroma
+MAQTQGTRKVCYYYDRKGRRKSRKPRK"""
+    sample_b = """>robusta_P1 caffeine_synthase
+MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
+>robusta_P3 unexpected_hit
+MAQTQGTRKVCYYYDRKGRRKSRK"""
 
     col1, col2 = st.columns(2)
     with col1:
