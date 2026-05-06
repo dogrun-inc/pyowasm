@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from typing import List, Dict
+from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
 
@@ -110,11 +110,13 @@ async def render_seqtk_mode() -> None:
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
     vfs_path = "input.fasta"
+    input_content = None
 
     if uploaded_file:
-        bridge.write_to_vfs(vfs_path, uploaded_file.getvalue().decode("utf-8"))
+        input_content = uploaded_file.getvalue().decode("utf-8")
+        bridge.write_to_vfs(vfs_path, input_content)
 
-    await display_biowasm_ui(vfs_path)
+    await display_biowasm_ui(vfs_path, input_content=input_content)
 
 async def render_ortholog_mode() -> None:
     """
@@ -138,10 +140,13 @@ async def render_ortholog_mode() -> None:
     if st.button("RBHパイプラインを実行"):
         from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
         task = OrthologAnalysisTask()
-        with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
-            result = await task.run(sample_a, sample_b)
-            status.update(label="解析完了!", state="complete")
-        task.render(result)
+        try:
+            with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
+                result = await task.run(sample_a, sample_b)
+                status.update(label="解析完了!", state="complete")
+            task.render(result)
+        except Exception as e:
+            st.error(f"RBH解析でエラーが発生しました: {e}")
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
     """
@@ -180,7 +185,7 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 st.bar_chart(df_comp.set_index("Base"))
 
 
-async def display_biowasm_ui(input_filename: str) -> None:
+async def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
     """
     Wasmバイオ情報学ツールを操作するためのUIを表示する。
 
@@ -206,7 +211,7 @@ async def display_biowasm_ui(input_filename: str) -> None:
                 task = SeqtkTask()
                 with st.spinner(f"{selected_tool} を実行中..."):
                     # 直接 await を使用して結果を待機する
-                    result = await task.run(input_filename, command)
+                    result = await task.run(input_filename, command, input_content=input_content)
 
                 with result_container:
                     task.render(result)
