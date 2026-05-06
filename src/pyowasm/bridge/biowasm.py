@@ -200,6 +200,15 @@ class BiowasmBridge:
         command = f"blastp -query {query_file} -db {db_name} {options}"
         return await self.run_tool("blast/2.11.0", command, files={query_file: query_content})
 
+    async def seqtk(self, command: str, files: dict[str, str] = None) -> str:
+        """
+        seqtkを実行します。
+        """
+        full_command = command.strip()
+        if not full_command.startswith("seqtk"):
+            full_command = f"seqtk {full_command}"
+        return await self.run_tool("seqtk/1.3", full_command, files=files)
+
     def write_to_vfs(self, filename: str, content: str) -> str:
         """
         Python側の文字列データをEmscriptenの仮想FSに書き出します。

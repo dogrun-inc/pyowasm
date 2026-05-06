@@ -57,6 +57,19 @@ async def test_biowasm_bridge_run_tool(biowasm_modules):
     biowasm_modules["js"].eval.assert_awaited_once()
 
 
+@pytest.mark.asyncio
+async def test_biowasm_bridge_seqtk(biowasm_modules):
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    bridge.run_tool = AsyncMock(return_value="seqtk output")
+
+    result = await bridge.seqtk("seq -a input.fasta")
+
+    assert result == "seqtk output"
+    bridge.run_tool.assert_awaited_once_with(
+        "seqtk/1.3", "seqtk seq -a input.fasta", files=None
+    )
+
+
 def test_biowasm_bridge_write_to_vfs(biowasm_modules):
     bridge = biowasm_modules["bridge_module"].BiowasmBridge()
     filename = "test.fasta"
@@ -71,26 +84,26 @@ def test_biowasm_bridge_write_to_vfs(biowasm_modules):
 @pytest.mark.asyncio
 async def test_seqtk_task_run(biowasm_modules):
     task = biowasm_modules["seqtk_module"].SeqtkTask()
-    biowasm_modules["bridge_module"].bridge.run_tool = AsyncMock(return_value="mocked output")
+    biowasm_modules["bridge_module"].bridge.seqtk = AsyncMock(return_value="mocked output")
 
     result = await task.run("input.fasta", "seq -a")
 
     assert result == "mocked output"
-    biowasm_modules["bridge_module"].bridge.run_tool.assert_awaited_once_with(
-        "seqtk/1.3", "seqtk seq -a input.fasta"
+    biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
+        "seq -a input.fasta"
     )
 
 
 @pytest.mark.asyncio
 async def test_seqtk_task_run_does_not_duplicate_input_filename(biowasm_modules):
     task = biowasm_modules["seqtk_module"].SeqtkTask()
-    biowasm_modules["bridge_module"].bridge.run_tool = AsyncMock(return_value="mocked output")
+    biowasm_modules["bridge_module"].bridge.seqtk = AsyncMock(return_value="mocked output")
 
     result = await task.run("input.fasta", "seq -a input.fasta")
 
     assert result == "mocked output"
-    biowasm_modules["bridge_module"].bridge.run_tool.assert_awaited_once_with(
-        "seqtk/1.3", "seqtk seq -a input.fasta"
+    biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
+        "seq -a input.fasta"
     )
 
 
