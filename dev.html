@@ -103,7 +103,7 @@ class FastaParserTask(BaseTask):
 
         first_non_empty_line = next((line for line in fasta_content.splitlines() if line.strip()), "")
         if first_non_empty_line and not first_non_empty_line.startswith(">"):
-            warnings.append("FASTAヘッダ(`>`)から始まっていないため、入力形式が不正の可能性があります。")
+            warnings.append("FASTAヘッダ(「>」)から始まっていないため、入力形式が不正の可能性があります。")
 
         fasta_io = StringIO(fasta_content)
 
@@ -620,7 +620,7 @@ def render_analysis_mode() -> None:
 async def render_seqtk_mode() -> None:
     st.subheader("🔧 Wasm ツール実行 (Seqtk)")
     st.markdown("""
-    JS/Wasm ブリッジを介して、ブラウザ内で `seqtk` を直接実行します。
+    JS/Wasm ブリッジを介して、ブラウザ内で seqtk を直接実行します。
     """)
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
@@ -693,7 +693,7 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
 async def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: `{input_filename}`")
+    st.write(f"VFS内のファイルを処理します: {input_filename}")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
