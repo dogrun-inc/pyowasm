@@ -50,3 +50,18 @@ def test_calculate_rbh_empty():
     df = calculate_rbh("", "")
     assert len(df) == 0
     assert isinstance(df, pd.DataFrame)
+
+def test_calculate_rbh_bitscore_tie():
+    # seq1 に対して seqA (bitscore=100, evalue=1e-10) と seqB (bitscore=100, evalue=1e-5) の同点ヒット
+    # evalue が小さい（より有意な）seqA が選ばれるべき
+    forward = "seq1\tseqA\t100.0\t100\t0\t0\t1\t100\t1\t100\t1e-10\t100.0\n" \
+              "seq1\tseqB\t100.0\t100\t0\t0\t1\t100\t1\t100\t1e-5\t100.0"
+
+    # seqA -> seq1 が最良ヒット
+    reverse = "seqA\tseq1\t100.0\t100\t0\t0\t1\t100\t1\t100\t1e-10\t100.0"
+
+    df = calculate_rbh(forward, reverse)
+
+    assert len(df) == 1
+    assert df.iloc[0]["query_a"] == "seq1"
+    assert df.iloc[0]["query_b"] == "seqA"
