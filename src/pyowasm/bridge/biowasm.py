@@ -149,6 +149,13 @@ class BiowasmBridge:
                             return token;
                         }};
 
+                        const formatPathToken = (path) => {{
+                            if (/\s/.test(path)) {{
+                                return JSON.stringify(path);
+                            }}
+                            return path;
+                        }};
+
                         let commandTokens = tokenizeCommand(commandToExec);
 
                         for (let i = 0; i < filesToMount.length; i++) {{
@@ -156,7 +163,7 @@ class BiowasmBridge:
                             const mountedPath = resolvePath(mountedPaths[i]);
                             if (mountedPath) {{
                                 commandTokens = commandTokens.map((token) =>
-                                    normalizeToken(token) === originalName ? JSON.stringify(mountedPath) : token
+                                    normalizeToken(token) === originalName ? formatPathToken(mountedPath) : token
                                 );
                             }}
                         }}
