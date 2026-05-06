@@ -58,6 +58,19 @@ async def test_biowasm_bridge_run_tool(biowasm_modules):
 
 
 @pytest.mark.asyncio
+async def test_biowasm_bridge_run_tool_with_files_sets_js_files(biowasm_modules):
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    biowasm_modules["js"].eval.return_value = '{"status": "success", "data": "output", "debug": []}'
+
+    files = {"test.txt": "hello"}
+    result = await bridge.run_tool("blast/2.11.0", "cat test.txt", files=files)
+
+    assert result == "output"
+    assert biowasm_modules["js"]._pyowasm_files == files
+    biowasm_modules["js"].eval.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_biowasm_bridge_seqtk(biowasm_modules):
     bridge = biowasm_modules["bridge_module"].BiowasmBridge()
     bridge.run_tool = AsyncMock(return_value="seqtk output")
@@ -67,6 +80,53 @@ async def test_biowasm_bridge_seqtk(biowasm_modules):
     assert result == "seqtk output"
     bridge.run_tool.assert_awaited_once_with(
         "seqtk/1.3", "seqtk seq -a input.fasta", files=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_makeblastdb_builds_command_and_files(biowasm_modules):
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    bridge.run_tool = AsyncMock(return_value="makeblastdb done")
+
+    fasta_content = ">protein1\nMKT"
+    result = await bridge.makeblastdb(fasta_content, db_name="coffee_db", db_type="prot")
+
+    assert result == "makeblastdb done"
+    bridge.run_tool.assert_awaited_once_with(
+        "blast/2.11.0",
+        "makeblastdb -in coffee_db.fasta -dbtype prot -out coffee_db",
+        files={"coffee_db.fasta": fasta_content},
+    )
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_blastp_builds_command_and_files(biowasm_modules):
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    bridge.run_tool = AsyncMock(return_value="q1\ts1\t99.0")
+
+    query_content = ">query1\nMKT"
+    options = "-outfmt 6 -evalue 1e-5"
+    result = await bridge.blastp(query_content, db_name="coffee_db", options=options)
+
+    assert result == "q1\ts1\t99.0"
+    bridge.run_tool.assert_awaited_once_with(
+        "blast/2.11.0",
+        "blastp -query query.fasta -db coffee_db -outfmt 6 -evalue 1e-5",
+        files={"query.fasta": query_content},
+    )
+
+
+@pytest.mark.asyncio
+async def test_biowasm_bridge_blastp_uses_default_options(biowasm_modules):
+    bridge = biowasm_modules["bridge_module"].BiowasmBridge()
+    bridge.run_tool = AsyncMock(return_value="")
+
+    await bridge.blastp(">query1\nMKT", db_name="coffee_db")
+
+    bridge.run_tool.assert_awaited_once_with(
+        "blast/2.11.0",
+        "blastp -query query.fasta -db coffee_db -outfmt 6",
+        files={"query.fasta": ">query1\nMKT"},
     )
 
 
