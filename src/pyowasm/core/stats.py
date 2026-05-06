@@ -25,8 +25,8 @@ def calculate_rbh(forward_tsv: str, reverse_tsv: str) -> pd.DataFrame:
         
         df = pd.read_csv(StringIO(tsv_content), sep="\t", names=columns)
         # 各クエリに対して最大の bitscore を持つヒットを抽出
-        # 同じスコアがある場合は最初のものを採用
-        best_hits = df.sort_values("bitscore", ascending=False).drop_duplicates("query")
+        # 同点時は evalue が最小（最良）のものを優先する
+        best_hits = df.sort_values(["bitscore", "evalue"], ascending=[False, True]).drop_duplicates("query")
         return best_hits
 
     df_ab = get_best_hits(forward_tsv)
