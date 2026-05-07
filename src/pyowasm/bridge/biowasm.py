@@ -140,22 +140,22 @@ class BiowasmBridge:
                         }};
 
                         const tokenizeCommand = (command) => {{
-                            const matches = command.match(/[^\s"']+|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'/g);
+                            const matches = command.match(/[^\\s"']+|"(?:\\\\.|[^"])*"|'(?:\\\\.|[^'])*'/g);
                             return matches || [];
                         }};
 
                         const normalizeToken = (token) => {{
                             if (token.length >= 2 && token[0] === '"' && token[token.length - 1] === '"') {{
-                                return token.slice(1, -1).replace(/\\"/g, '"');
+                                return token.slice(1, -1).replace(/\\\\"/g, '"');
                             }}
                             if (token.length >= 2 && token[0] === "'" && token[token.length - 1] === "'") {{
-                                return token.slice(1, -1).replace(/\\'/g, "'");
+                                return token.slice(1, -1).replace(/\\\\'/g, "'");
                             }}
                             return token;
                         }};
 
                         const formatPathToken = (path) => {{
-                            if (/\s/.test(path)) {{
+                            if (/\\s/.test(path)) {{
                                 return JSON.stringify(path);
                             }}
                             return path;

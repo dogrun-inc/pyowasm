@@ -166,7 +166,7 @@ async def test_seqtk_task_run(biowasm_modules):
 
     assert result == "mocked output"
     biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
-        "seq -a input.fasta"
+        "seq -a input.fasta", files=None
     )
 
 
@@ -179,7 +179,20 @@ async def test_seqtk_task_run_does_not_duplicate_input_filename(biowasm_modules)
 
     assert result == "mocked output"
     biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
-        "seq -a input.fasta"
+        "seq -a input.fasta", files=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_seqtk_task_run_with_input_content_mounts_file(biowasm_modules):
+    task = biowasm_modules["seqtk_module"].SeqtkTask()
+    biowasm_modules["bridge_module"].bridge.seqtk = AsyncMock(return_value="mocked output")
+
+    result = await task.run("input.fasta", "seq -a", input_content=">seq1\nATGC")
+
+    assert result == "mocked output"
+    biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
+        "seq -a input.fasta", files={"input.fasta": ">seq1\nATGC"}
     )
 
 
@@ -232,7 +245,7 @@ async def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules)
     # We don't need to mock loop if we use pytest-asyncio properly, 
     # but the code itself might be using it.
     
-    async def fake_run(self, input_filename, command):
+    async def fake_run(self, input_filename, command, input_content=None):
         return f"{command}::{input_filename}"
 
     with patch.object(components.st, "divider"), \
@@ -347,7 +360,7 @@ async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules)
     result_container.__enter__.return_value = result_container
     result_container.__exit__.return_value = None
 
-    async def fake_run_with_error(self, input_filename, command):
+    async def fake_run_with_error(self, input_filename, command, input_content=None):
         raise RuntimeError("Task execution failed")
 
     with patch.object(components.st, "divider"), \
