@@ -669,8 +669,14 @@ async def render_ortholog_mode() -> None:
 
     input_method = st.radio("入力方法を選択:", ["サンプルテキスト", "FAAファイルをアップロード"], horizontal=True)
 
-    sample_a = ">arabica_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>arabica_P2 coffee_aroma\\nMAQTQGTRKVCYYYDRKGRRKSRKPRK"
-    sample_b = ">robusta_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>robusta_P3 unexpected_hit\\nMAQTQGTRKVCYYYDRKGRRKSRK"
+    sample_a = """>arabica_P1 caffeine_synthase
+MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
+>arabica_P2 coffee_aroma
+MAQTQGTRKVCYYYDRKGRRKSRKPRK"""
+    sample_b = """>robusta_P1 caffeine_synthase
+MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
+>robusta_P3 unexpected_hit
+MAQTQGTRKVCYYYDRKGRRKSRK"""
 
     data_a, data_b = "", ""
 
