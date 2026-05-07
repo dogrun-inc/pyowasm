@@ -128,25 +128,42 @@ async def render_ortholog_mode() -> None:
     Wasm 上で RBH 解析パイプラインを実行します。
     """)
 
+    input_method = st.radio("入力方法を選択:", ["サンプルテキスト", "FAAファイルをアップロード"], horizontal=True)
+
     sample_a = ">arabica_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>arabica_P2 coffee_aroma\\nMAQTQGTRKVCYYYDRKGRRKSRKPRK"
     sample_b = ">robusta_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>robusta_P3 unexpected_hit\\nMAQTQGTRKVCYYYDRKGRRKSRK"
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
-    with col2:
-        st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
+    data_a, data_b = "", ""
 
-    if st.button("RBHパイプラインを実行"):
+    if input_method == "サンプルテキスト":
+        col1, col2 = st.columns(2)
+        with col1:
+            data_a = st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
+        with col2:
+            data_b = st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            file_a = st.file_uploader("Species A の FAA ファイル", type=["faa", "fasta"])
+            if file_a:
+                data_a = file_a.getvalue().decode("utf-8")
+        with col2:
+            file_b = st.file_uploader("Species B の FAA ファイル", type=["faa", "fasta"])
+            if file_b:
+                data_b = file_b.getvalue().decode("utf-8")
+
+    if st.button("RBHパイプラインを実行", key="run_rbh_main") and data_a and data_b:
         from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
         task = OrthologAnalysisTask()
         try:
             with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
-                result = await task.run(sample_a, sample_b)
+                result = await task.run(data_a, data_b)
                 status.update(label="解析完了!", state="complete")
             task.render(result)
         except Exception as e:
             st.error(f"RBH解析でエラーが発生しました: {e}")
+    elif st.button("RBHパイプラインを実行", key="run_rbh_warning"):
+        st.warning("両方の入力データが必要です。")
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
     """
