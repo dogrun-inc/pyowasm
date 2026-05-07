@@ -104,8 +104,8 @@ async def render_seqtk_mode() -> None:
     Seqtk実行モードのUIを表示します。
     """
     st.subheader("🔧 Wasm ツール実行 (Seqtk)")
-    st.markdown("""
-    JS/Wasm ブリッジを介して、ブラウザ内で `seqtk` を直接実行します。
+    st.markdown(r"""
+    JS/Wasm ブリッジを介して、ブラウザ内で \`seqtk\` を直接実行します。
     """)
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
@@ -211,7 +211,7 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     """
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: `{input_filename}`")
+    st.write(f"VFS内のファイルを処理します: \\`{input_filename}\\`")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
