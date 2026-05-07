@@ -152,18 +152,19 @@ async def render_ortholog_mode() -> None:
             if file_b:
                 data_b = file_b.getvalue().decode("utf-8")
 
-    if st.button("RBHパイプラインを実行", key="run_rbh_main") and data_a and data_b:
-        from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
-        task = OrthologAnalysisTask()
-        try:
-            with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
-                result = await task.run(data_a, data_b)
-                status.update(label="解析完了!", state="complete")
-            task.render(result)
-        except Exception as e:
-            st.error(f"RBH解析でエラーが発生しました: {e}")
-    elif st.button("RBHパイプラインを実行", key="run_rbh_warning"):
-        st.warning("両方の入力データが必要です。")
+    if st.button("RBHパイプラインを実行"):
+        if data_a and data_b:
+            from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
+            task = OrthologAnalysisTask()
+            try:
+                with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
+                    result = await task.run(data_a, data_b)
+                    status.update(label="解析完了!", state="complete")
+                task.render(result)
+            except Exception as e:
+                st.error(f"RBH解析でエラーが発生しました: {e}")
+        else:
+            st.warning("両方の入力データが必要です。")
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
     """
