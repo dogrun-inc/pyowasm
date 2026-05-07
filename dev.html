@@ -335,22 +335,22 @@ class BiowasmBridge:
                         }};
 
                         const tokenizeCommand = (command) => {{
-                            const matches = command.match(/[^\s"']+|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'/g);
+                            const matches = command.match(/[^\\s"']+|"(?:\\\\.|[^"])*"|'(?:\\\\.|[^'])*'/g);
                             return matches || [];
                         }};
 
                         const normalizeToken = (token) => {{
                             if (token.length >= 2 && token[0] === '"' && token[token.length - 1] === '"') {{
-                                return token.slice(1, -1).replace(/\\"/g, '"');
+                                return token.slice(1, -1).replace(/\\\\"/g, '"');
                             }}
                             if (token.length >= 2 && token[0] === "'" && token[token.length - 1] === "'") {{
-                                return token.slice(1, -1).replace(/\\'/g, "'");
+                                return token.slice(1, -1).replace(/\\\\'/g, "'");
                             }}
                             return token;
                         }};
 
                         const formatPathToken = (path) => {{
-                            if (/\s/.test(path)) {{
+                            if (/\\s/.test(path)) {{
                                 return JSON.stringify(path);
                             }}
                             return path;
@@ -643,8 +643,8 @@ async def render_seqtk_mode() -> None:
     Seqtk実行モードのUIを表示します。
     """
     st.subheader("🔧 Wasm ツール実行 (Seqtk)")
-    st.markdown("""
-    JS/Wasm ブリッジを介して、ブラウザ内で \`seqtk\` を直接実行します。
+    st.markdown(r"""
+    JS/Wasm ブリッジを介して、ブラウザ内で \\\`seqtk\\\` を直接実行します。
     """)
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
@@ -749,7 +749,7 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     """
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: \`{input_filename}\`")
+    st.write(fr"VFS内のファイルを処理します: \\\`{input_filename}\\\`")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
