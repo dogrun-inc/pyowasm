@@ -1,17 +1,77 @@
 import pandas as pd
 from io import StringIO
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from Bio.Align import PairwiseAligner, substitution_matrices
 from ..base import BaseTask
 from ...ui.components import render_rbh_results
+
+ALLOWED_AMINO_ACIDS = set(substitution_matrices.load("BLOSUM62").alphabet)
 
 class OrthologAnalysisTask(BaseTask):
     """
     BioPython PairwiseAligner を使用して 2 種間のオーソログ解析（RBH）を行うタスク。
     """
 
+    def __init__(self) -> None:
+        """直近の入力検証結果を保持する。"""
+        self.last_warnings: list[str] = []
+        self.last_excluded_records: list[dict[str, object]] = []
+
     @staticmethod
-    def _compute_best_hits(seqs_query, seqs_subject) -> pd.DataFrame:
+    def _normalize_fasta_content(fasta_content: str) -> str:
+        """FASTA 文字列全体から BOM と行末空白を除去する。"""
+        cleaned = fasta_content.replace("\ufeff", "")
+        return "\n".join(line.rstrip() for line in cleaned.splitlines())
+
+    @staticmethod
+    def _normalize_sequence(sequence: str) -> str:
+        """配列文字列をアラインメント前に正規化する。"""
+        return sequence.replace("\ufeff", "").strip().upper()
+
+    def _sanitize_sequences(self, records: list[SeqRecord], species_label: str) -> list[SeqRecord]:
+        """配列を正規化し、BLOSUM62 非対応文字を含むレコードを除外する。"""
+        sanitized_records: list[SeqRecord] = []
+
+        for record in records:
+            normalized = self._normalize_sequence(str(record.seq))
+            invalid_chars = sorted(set(normalized) - ALLOWED_AMINO_ACIDS)
+
+            if invalid_chars:
+                self.last_excluded_records.append({
+                    "species": species_label,
+                    "record_id": record.id,
+                    "invalid_chars": "".join(invalid_chars),
+                    "length": len(normalized),
+                })
+                continue
+
+            sanitized_records.append(
+                SeqRecord(Seq(normalized), id=record.id, description=record.description)
+            )
+
+        return sanitized_records
+
+    def _update_validation_summary(self) -> None:
+        """除外レコード数に応じた警告メッセージを更新する。"""
+        if not self.last_excluded_records:
+            return
+
+        counts: dict[str, int] = {}
+        for record in self.last_excluded_records:
+            species = str(record["species"])
+            counts[species] = counts.get(species, 0) + 1
+
+        summary = "、".join(f"{species} {count}件" for species, count in counts.items())
+        total = len(self.last_excluded_records)
+        self.last_warnings.append(
+            f"BLOSUM62 非対応文字を含むレコードを除外して続行しました（{summary}、合計 {total}件）。"
+        )
+
+    @staticmethod
+    def _compute_best_hits(seqs_query: list[SeqRecord], seqs_subject: list[SeqRecord]) -> pd.DataFrame:
+        """クエリ集合ごとに最良ヒットを計算する。"""
         aligner = PairwiseAligner()
         aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
         aligner.open_gap_score = -11
@@ -33,11 +93,19 @@ class OrthologAnalysisTask(BaseTask):
         return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["query", "subject", "identity", "score"])
 
     async def run(self, sample_a: str, sample_b: str) -> pd.DataFrame:
+        """2 種の FAA データから RBH を計算し、必要に応じて不正レコードを除外する。"""
+        self.last_warnings = []
+        self.last_excluded_records = []
         empty = pd.DataFrame(columns=["query_a", "query_b", "identity_a_to_b", "identity_b_to_a", "bitscore_a_to_b", "bitscore_b_to_a"])
-        seqs_a = list(SeqIO.parse(StringIO(sample_a), "fasta"))
-        seqs_b = list(SeqIO.parse(StringIO(sample_b), "fasta"))
+        normalized_a = self._normalize_fasta_content(sample_a)
+        normalized_b = self._normalize_fasta_content(sample_b)
+        seqs_a = list(SeqIO.parse(StringIO(normalized_a), "fasta"))
+        seqs_b = list(SeqIO.parse(StringIO(normalized_b), "fasta"))
         if not seqs_a or not seqs_b:
             return empty
+        seqs_a = self._sanitize_sequences(seqs_a, "Species A")
+        seqs_b = self._sanitize_sequences(seqs_b, "Species B")
+        self._update_validation_summary()
         df_ab = self._compute_best_hits(seqs_a, seqs_b)
         df_ba = self._compute_best_hits(seqs_b, seqs_a)
         if df_ab.empty or df_ba.empty:

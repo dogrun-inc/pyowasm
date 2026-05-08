@@ -166,6 +166,11 @@ MAQTQGTRKVCYYYDRKGRRKSRK"""
                 with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
                     result = await task.run(data_a, data_b)
                     status.update(label="解析完了!", state="complete")
+                for warning_message in task.last_warnings:
+                    st.warning(warning_message)
+                if task.last_excluded_records:
+                    with st.expander("除外したレコード一覧を表示"):
+                        st.dataframe(pd.DataFrame(task.last_excluded_records))
                 task.render(result)
             except Exception as e:
                 st.error(f"RBH解析でエラーが発生しました: {e}")
