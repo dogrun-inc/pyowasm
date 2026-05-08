@@ -20,6 +20,7 @@ Pyowasm は、拡張性の高いワークフロー実行エンジンを備えた
 - `src/pyowasm/models/`: 共通データ構造（schema）
 - `assets/`: 静的ファイル（ロゴ、サンプルデータ）
 - `src/pyowasm/bridge/`: JS/Wasm ブリッジ実装
+- `scripts/`: 補助ツール（変更時は動作検証手順を明示する）
 
 ## 2. コーディング規約
 

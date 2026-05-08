@@ -39,23 +39,39 @@ def to_js_string_raw(content: str) -> str:
 
 
 def replace_placeholder(match: re.Match) -> str:
+    """プレースホルダーに対応するファイルを読み込み、JavaScript埋め込み用文字列に変換する。"""
     rel_path = match.group(1).strip()
     src_path = REPO_ROOT / rel_path
 
     if not src_path.exists():
-        print(f"[ERROR] ファイルが見つかりません: {src_path}", file=sys.stderr)
-        sys.exit(1)
+        raise FileNotFoundError(str(src_path))
 
     content = src_path.read_text(encoding="utf-8")
     return to_js_string_raw(content)
 
 
 def main() -> None:
+    """テンプレートを展開して index.html を生成し、欠落ファイルがあればまとめて報告する。"""
     if not TEMPLATE_PATH.exists():
         print(f"[ERROR] テンプレートが見つかりません: {TEMPLATE_PATH}", file=sys.stderr)
         sys.exit(1)
 
     template = TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    # 先に全プレースホルダーを検査し、不足ファイルをまとめて報告する。
+    missing_files: list[Path] = []
+    for match in PLACEHOLDER_RE.finditer(template):
+        rel_path = match.group(1).strip()
+        src_path = REPO_ROOT / rel_path
+        if not src_path.exists():
+            missing_files.append(src_path)
+
+    if missing_files:
+        print("[ERROR] 以下のファイルが見つかりません:", file=sys.stderr)
+        for path in missing_files:
+            print(f"  - {path}", file=sys.stderr)
+        sys.exit(1)
+
     output = PLACEHOLDER_RE.sub(replace_placeholder, template)
     output = GENERATED_HEADER + output
 

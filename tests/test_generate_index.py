@@ -80,14 +80,14 @@ class TestReplacePlaceholder:
 
         assert result == "String.raw`x = 1\n`"
 
-    def test_exits_when_file_not_found(self, tmp_path):
-        """存在しないファイルを指定すると SystemExit が発生する。"""
+    def test_raises_when_file_not_found(self, tmp_path):
+        """存在しないファイルを指定すると FileNotFoundError が発生する。"""
         import generate_index as gi
         original = gi.REPO_ROOT
         gi.REPO_ROOT = tmp_path
         try:
             match = PLACEHOLDER_RE.search("{{PLACEHOLDER:nonexistent.py}}")
-            with pytest.raises(SystemExit):
+            with pytest.raises(FileNotFoundError):
                 replace_placeholder(match)
         finally:
             gi.REPO_ROOT = original
@@ -191,3 +191,21 @@ class TestMain:
 
         with pytest.raises(SystemExit):
             main()
+
+    def test_reports_all_missing_files(self, tmp_path, monkeypatch, capsys):
+        """不足ファイルが複数ある場合に、すべてまとめて報告される。"""
+        import generate_index as gi
+        template = "{{PLACEHOLDER:src/a.py}} and {{PLACEHOLDER:src/b.py}}"
+        self._setup(tmp_path, template, {})
+
+        monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
+        monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+
+        with pytest.raises(SystemExit):
+            main()
+
+        captured = capsys.readouterr()
+        assert "以下のファイルが見つかりません" in captured.err
+        assert str(tmp_path / "src" / "a.py") in captured.err
+        assert str(tmp_path / "src" / "b.py") in captured.err
