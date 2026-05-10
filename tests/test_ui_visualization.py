@@ -1,7 +1,8 @@
 import pytest
 import pandas as pd
+import asyncio
 from unittest.mock import MagicMock, patch
-from pyowasm.ui.components import render_rbh_results, render_rbh_plots
+from pyowasm.ui.components import render_rbh_results, render_rbh_plots, render_ortholog_mode
 
 @pytest.fixture
 def sample_rbh_df():
@@ -57,3 +58,101 @@ def test_render_rbh_results_empty():
     with patch("pyowasm.ui.components.st.warning") as mock_warning:
         render_rbh_results(empty_df)
         mock_warning.assert_called_once()
+
+
+class _FakeUpload:
+    def __init__(self, text: str) -> None:
+        self._text = text
+
+    def getvalue(self) -> bytes:
+        return self._text.encode("utf-8")
+
+
+def _context_columns(n: int):
+    cols = []
+    for _ in range(n):
+        col = MagicMock()
+        col.__enter__.return_value = col
+        col.__exit__.return_value = False
+        cols.append(col)
+    return cols
+
+
+def test_render_ortholog_mode_faa_upload_executes_task(monkeypatch):
+    class FakeTask:
+        def __init__(self) -> None:
+            self.last_warnings = []
+            self.last_excluded_records = []
+            self.called = False
+
+        async def run(self, sample_a, sample_b, keywords_a=None, keywords_b=None, k=4, top_n=20):
+            self.called = True
+            assert ">a1" in sample_a
+            assert ">b1" in sample_b
+            assert keywords_a is not None and keywords_b is not None
+            assert k == 4
+            assert top_n == 20
+            return pd.DataFrame()
+
+        def render(self, result):
+            assert isinstance(result, pd.DataFrame)
+
+    fake_task = FakeTask()
+    monkeypatch.setattr(
+        "pyowasm.tasks.wasm.ortholog_analyzer.OrthologAnalysisTask",
+        lambda: fake_task,
+    )
+
+    with patch("pyowasm.ui.components.st") as mock_st:
+        mock_st.slider.side_effect = [4, 20]
+        mock_st.radio.return_value = "FAAファイルをアップロード"
+        mock_st.file_uploader.side_effect = [
+            _FakeUpload(">a1\nACDE\n"),
+            _FakeUpload(">b1\nACDE\n"),
+        ]
+        mock_st.button.return_value = True
+        mock_st.columns.side_effect = [
+            _context_columns(2),
+            _context_columns(2),
+        ]
+        status = MagicMock()
+        status.__enter__.return_value = status
+        status.__exit__.return_value = False
+        mock_st.status.return_value = status
+
+        asyncio.run(render_ortholog_mode())
+
+        assert fake_task.called
+        mock_st.warning.assert_not_called()
+        status.update.assert_called_once()
+
+
+def test_render_ortholog_mode_faa_upload_requires_both_files(monkeypatch):
+    class FakeTask:
+        async def run(self, *args, **kwargs):
+            raise AssertionError("run should not be called when one file is missing")
+
+        def render(self, result):
+            raise AssertionError("render should not be called when one file is missing")
+
+    monkeypatch.setattr(
+        "pyowasm.tasks.wasm.ortholog_analyzer.OrthologAnalysisTask",
+        lambda: FakeTask(),
+    )
+
+    with patch("pyowasm.ui.components.st") as mock_st:
+        mock_st.slider.side_effect = [4, 20]
+        mock_st.radio.return_value = "FAAファイルをアップロード"
+        mock_st.file_uploader.side_effect = [
+            _FakeUpload(">a1\nACDE\n"),
+            None,
+        ]
+        mock_st.button.return_value = True
+        mock_st.columns.side_effect = [
+            _context_columns(2),
+            _context_columns(2),
+        ]
+
+        asyncio.run(render_ortholog_mode())
+
+        mock_st.warning.assert_called_with("両方の入力データが必要です。")
