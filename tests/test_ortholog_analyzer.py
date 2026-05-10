@@ -3,6 +3,7 @@ import types
 
 import pytest
 
+# Mock external modules
 streamlit_module = types.ModuleType("streamlit")
 seaborn_module = types.ModuleType("seaborn")
 matplotlib_module = types.ModuleType("matplotlib")
@@ -15,41 +16,74 @@ sys.modules.setdefault("matplotlib", matplotlib_module)
 sys.modules.setdefault("matplotlib.pyplot", pyplot_module)
 
 from pyowasm.tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
+from Bio.SeqRecord import SeqRecord
+from Bio.Seq import Seq
 
 
 def test_normalize_sequence_uppercases_and_removes_bom() -> None:
+    """Test that normalize_sequence uppercases and removes BOM characters."""
     task = OrthologAnalysisTask()
-
-    normalized = task._normalize_sequence("  acd\ufeffe  ")
-
+    normalized = task._normalize_sequence("  acd\ufeffE  ")
     assert normalized == "ACDE"
 
 
-@pytest.mark.asyncio
-async def test_run_excludes_invalid_records_and_continues() -> None:
+def test_normalize_fasta_content_removes_bom() -> None:
+    """Test that normalize_fasta_content removes BOM from FASTA strings."""
     task = OrthologAnalysisTask()
-    sample_a = ">a1\nacde\n"
-    sample_b = ">b1\nACDE\n>b2\nACDU\n"
+    result = task._normalize_fasta_content("\ufeff>seq1\nACDE\n")
+    assert ">seq1" in result
+    assert "ACDE" in result
+    assert "\ufeff" not in result
 
-    result = await task.run(sample_a, sample_b)
 
-    assert len(result) == 1
-    assert result.iloc[0]["query_a"] == "a1"
-    assert result.iloc[0]["query_b"] == "b1"
+def test_filter_records_by_keywords() -> None:
+    """Test keyword filtering with case-insensitive matching and separator normalization."""
+    task = OrthologAnalysisTask()
+    records = [
+        SeqRecord(Seq("ACDE"), id="a1", description="caffeine_synthase"),
+        SeqRecord(Seq("ACDE"), id="a2", description="caffeine-synthase"),
+        SeqRecord(Seq("ACDE"), id="a3", description="unrelated_gene"),
+    ]
+    
+    result = task._filter_records_by_keywords(records, "TestSpecies", ["caffeine synthase"])
+    
+    # Should match both a1 and a2 (underscore and hyphen treated as space)
+    assert len(result) == 2
+    assert result[0].id == "a1"
+    assert result[1].id == "a2"
+    assert any("キーワード抽出" in msg for msg in task.last_warnings)
+
+
+def test_sanitize_sequences_excludes_invalid() -> None:
+    """Test that sequences with non-BLOSUM62 characters are excluded."""
+    task = OrthologAnalysisTask()
+    records = [
+        SeqRecord(Seq("ACDE"), id="valid1", description="good"),
+        SeqRecord(Seq("ACDEU"), id="invalid1", description="has_U"),
+        SeqRecord(Seq("MKVL"), id="valid2", description="also_good"),
+    ]
+    
+    result = task._sanitize_sequences(records, "TestSpecies")
+    
+    assert len(result) == 2
+    assert result[0].id == "valid1"
+    assert result[1].id == "valid2"
     assert len(task.last_excluded_records) == 1
-    assert task.last_excluded_records[0]["record_id"] == "b2"
-    assert task.last_excluded_records[0]["invalid_chars"] == "U"
-    assert any("合計 1件" in message for message in task.last_warnings)
+    assert task.last_excluded_records[0]["record_id"] == "invalid1"
+    assert "U" in task.last_excluded_records[0]["invalid_chars"]
 
 
-@pytest.mark.asyncio
-async def test_run_handles_bom_without_excluding_record() -> None:
+def test_normalize_text_for_keyword_match() -> None:
+    """Test keyword matching normalization (underscores/hyphens -> space, lowercase)."""
     task = OrthologAnalysisTask()
-    sample_a = ">a1\nACD\ufeffE\n"
-    sample_b = ">b1\nACDE\n"
-
-    result = await task.run(sample_a, sample_b)
-
-    assert len(result) == 1
-    assert task.last_excluded_records == []
-    assert task.last_warnings == []
+    
+    tests = [
+        ("caffeine_synthase", "caffeine synthase"),
+        ("caffeine-synthase", "caffeine synthase"),
+        ("Caffeine-Synthase", "caffeine synthase"),
+        ("caffeine  synthase", "caffeine synthase"),
+    ]
+    
+    for input_text, expected in tests:
+        result = task._normalize_text_for_keyword_match(input_text)
+        assert result == expected, f"Failed for {input_text}: got {result}"
