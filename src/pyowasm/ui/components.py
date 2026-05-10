@@ -128,6 +128,23 @@ async def render_ortholog_mode() -> None:
     Wasm 上で RBH 解析パイプラインを実行します。
     """)
 
+    target_keywords = ["caffeine synthase", "methyltransferase", "xanthosine"]
+    st.caption(f"キーワード抽出（ハードコード）: {', '.join(target_keywords)}")
+
+    col_k, col_top = st.columns(2)
+    with col_k:
+        k_size = st.slider(
+            "k-mer サイズ (k)",
+            min_value=3, max_value=6, value=4,
+            help="アミノ酸 k-mer のサイズ。大きいほど精度↑・ヒット率↓。",
+        )
+    with col_top:
+        top_n = st.slider(
+            "候補数 (top_n)",
+            min_value=5, max_value=100, value=20,
+            help="k-mer スコア上位何件に精密アラインメントを実施するか。",
+        )
+
     input_method = st.radio("入力方法を選択:", ["サンプルテキスト", "FAAファイルをアップロード"], horizontal=True)
 
     sample_a = """>arabica_P1 caffeine_synthase
@@ -163,8 +180,15 @@ MAQTQGTRKVCYYYDRKGRRKSRK"""
             from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
             task = OrthologAnalysisTask()
             try:
-                with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
-                    result = await task.run(data_a, data_b)
+                with st.status("RBH解析実行中...", expanded=True) as status:
+                    result = await task.run(
+                        data_a,
+                        data_b,
+                        keywords_a=target_keywords,
+                        keywords_b=target_keywords,
+                        k=k_size,
+                        top_n=top_n,
+                    )
                     status.update(label="解析完了!", state="complete")
                 for warning_message in task.last_warnings:
                     st.warning(warning_message)
