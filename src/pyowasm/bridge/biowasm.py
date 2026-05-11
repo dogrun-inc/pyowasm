@@ -218,32 +218,16 @@ class BiowasmBridge:
             trace = "\n".join(py_debug)
             return f"ブリッジ通信エラー: {str(e)}\n\n--- Debug Trace ---\n{trace}"
 
-    async def makeblastdb(self, fasta_content: str, db_name: str = "mydb", db_type: str = "prot") -> str:
+    async def smith_waterman(self, query_sequence: str, subject_sequence: str) -> str:
         """
-        配列データをデータベース化します。
+        seq-align の smith_waterman を実行します。
+        2 配列を直接引数で渡し、アラインメント結果のテキストを返します。
         """
-        input_file = f"{db_name}.fasta"
-        # BLAST+ (blast/2.11.0) を使用
         command = (
-            f"makeblastdb -in {self._quote_cli_arg(input_file)} "
-            f"-dbtype {self._quote_cli_arg(db_type)} "
-            f"-out {self._quote_cli_arg(db_name)}"
+            f"smith_waterman {self._quote_cli_arg(query_sequence)} "
+            f"{self._quote_cli_arg(subject_sequence)}"
         )
-        return await self.run_tool("blast/2.11.0", command, files={input_file: fasta_content})
-
-    async def blastp(self, query_content: str, db_name: str, options: str = "-outfmt 6") -> str:
-        """
-        BLASTP検索を実行します。
-        TSV形式（-outfmt 6）で結果を回収します。
-        """
-        query_file = "query.fasta"
-        # 同一の Aioli インスタンス（blast/2.11.0）を再利用することで、
-        # makeblastdb で作成された DB ファイルが worker 側の VFS に残っていることを期待します。
-        command = (
-            f"blastp -query {self._quote_cli_arg(query_file)} "
-            f"-db {self._quote_cli_arg(db_name)} {options}"
-        )
-        return await self.run_tool("blast/2.11.0", command, files={query_file: query_content})
+        return await self.run_tool("seq-align/smith_waterman/2017.10.18", command)
 
     async def seqtk(self, command: str, files: dict[str, str] = None) -> str:
         """

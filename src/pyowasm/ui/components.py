@@ -6,6 +6,8 @@ from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
 
+MAX_RBH_SCATTER_POINTS = 500
+
 def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
     """
     RBHの結果を可視化するグラフを生成・表示します。
@@ -29,6 +31,11 @@ def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
         # インデックスに基づく簡易的なドットプロット
         # クエリ名をソートして並べることで大まかな傾向を見る
         plot_df = rbh_df.copy()
+        if len(plot_df) > MAX_RBH_SCATTER_POINTS:
+            plot_df = plot_df.nlargest(MAX_RBH_SCATTER_POINTS, "bitscore_a_to_b")
+            st.info(
+                f"RBH件数が多いため、ドットプロットは bitscore 上位 {MAX_RBH_SCATTER_POINTS} 件のみ表示しています。"
+            )
         plot_df = plot_df.sort_values(["query_a", "query_b"])
         
         fig, ax = plt.subplots()
@@ -104,8 +111,8 @@ async def render_seqtk_mode() -> None:
     Seqtk実行モードのUIを表示します。
     """
     st.subheader("🔧 Wasm ツール実行 (Seqtk)")
-    st.markdown("""
-    JS/Wasm ブリッジを介して、ブラウザ内で `seqtk` を直接実行します。
+    st.markdown(r"""
+    JS/Wasm ブリッジを介して、ブラウザ内で \`seqtk\` を直接実行します。
     """)
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
@@ -128,25 +135,78 @@ async def render_ortholog_mode() -> None:
     Wasm 上で RBH 解析パイプラインを実行します。
     """)
 
-    sample_a = ">arabica_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>arabica_P2 coffee_aroma\\nMAQTQGTRKVCYYYDRKGRRKSRKPRK"
-    sample_b = ">robusta_P1 caffeine_synthase\\nMEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM\\n>robusta_P3 unexpected_hit\\nMAQTQGTRKVCYYYDRKGRRKSRK"
+    target_keywords = ["caffeine synthase", "methyltransferase", "xanthosine"]
+    st.caption(f"キーワード抽出（ハードコード）: {', '.join(target_keywords)}")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
-    with col2:
-        st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
+    col_k, col_top = st.columns(2)
+    with col_k:
+        k_size = st.slider(
+            "k-mer サイズ (k)",
+            min_value=3, max_value=6, value=4,
+            help="アミノ酸 k-mer のサイズ。大きいほど精度↑・ヒット率↓。",
+        )
+    with col_top:
+        top_n = st.slider(
+            "候補数 (top_n)",
+            min_value=5, max_value=100, value=20,
+            help="k-mer スコア上位何件に精密アラインメントを実施するか。",
+        )
+
+    input_method = st.radio("入力方法を選択:", ["サンプルテキスト", "FAAファイルをアップロード"], horizontal=True)
+
+    sample_a = """>arabica_P1 caffeine_synthase
+MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
+>arabica_P2 coffee_aroma
+MAQTQGTRKVCYYYDRKGRRKSRKPRK"""
+    sample_b = """>robusta_P1 caffeine_synthase
+MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
+>robusta_P3 unexpected_hit
+MAQTQGTRKVCYYYDRKGRRKSRK"""
+
+    data_a, data_b = "", ""
+
+    if input_method == "サンプルテキスト":
+        col1, col2 = st.columns(2)
+        with col1:
+            data_a = st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
+        with col2:
+            data_b = st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            file_a = st.file_uploader("Species A の FAA ファイル", type=["faa", "fasta"])
+            if file_a:
+                data_a = file_a.getvalue().decode("utf-8")
+        with col2:
+            file_b = st.file_uploader("Species B の FAA ファイル", type=["faa", "fasta"])
+            if file_b:
+                data_b = file_b.getvalue().decode("utf-8")
 
     if st.button("RBHパイプラインを実行"):
-        from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
-        task = OrthologAnalysisTask()
-        try:
-            with st.status("Wasm-BLAST 実行中...", expanded=True) as status:
-                result = await task.run(sample_a, sample_b)
-                status.update(label="解析完了!", state="complete")
-            task.render(result)
-        except Exception as e:
-            st.error(f"RBH解析でエラーが発生しました: {e}")
+        if data_a and data_b:
+            from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
+            task = OrthologAnalysisTask()
+            try:
+                with st.status("RBH解析実行中...", expanded=True) as status:
+                    result = await task.run(
+                        data_a,
+                        data_b,
+                        keywords_a=target_keywords,
+                        keywords_b=target_keywords,
+                        k=k_size,
+                        top_n=top_n,
+                    )
+                    status.update(label="解析完了!", state="complete")
+                for warning_message in task.last_warnings:
+                    st.warning(warning_message)
+                if task.last_excluded_records:
+                    with st.expander("除外したレコード一覧を表示"):
+                        st.dataframe(pd.DataFrame(task.last_excluded_records))
+                render_rbh_results(result)
+            except Exception as e:
+                st.error(f"RBH解析でエラーが発生しました: {e}")
+        else:
+            st.warning("両方の入力データが必要です。")
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
     """
@@ -194,7 +254,7 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     """
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: `{input_filename}`")
+    st.write(f"VFS内のファイルを処理します: \\`{input_filename}\\`")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
