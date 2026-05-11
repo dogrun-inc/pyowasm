@@ -1,19 +1,4 @@
-import sys
-import types
-
 import pytest
-
-# Mock external modules
-streamlit_module = types.ModuleType("streamlit")
-seaborn_module = types.ModuleType("seaborn")
-matplotlib_module = types.ModuleType("matplotlib")
-pyplot_module = types.ModuleType("matplotlib.pyplot")
-matplotlib_module.pyplot = pyplot_module
-
-sys.modules.setdefault("streamlit", streamlit_module)
-sys.modules.setdefault("seaborn", seaborn_module)
-sys.modules.setdefault("matplotlib", matplotlib_module)
-sys.modules.setdefault("matplotlib.pyplot", pyplot_module)
 
 from pyowasm.tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
 from Bio.SeqRecord import SeqRecord

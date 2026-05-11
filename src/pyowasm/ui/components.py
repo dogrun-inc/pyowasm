@@ -6,6 +6,8 @@ from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
 
+MAX_RBH_SCATTER_POINTS = 500
+
 def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
     """
     RBHの結果を可視化するグラフを生成・表示します。
@@ -29,6 +31,11 @@ def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
         # インデックスに基づく簡易的なドットプロット
         # クエリ名をソートして並べることで大まかな傾向を見る
         plot_df = rbh_df.copy()
+        if len(plot_df) > MAX_RBH_SCATTER_POINTS:
+            plot_df = plot_df.nlargest(MAX_RBH_SCATTER_POINTS, "bitscore_a_to_b")
+            st.info(
+                f"RBH件数が多いため、ドットプロットは bitscore 上位 {MAX_RBH_SCATTER_POINTS} 件のみ表示しています。"
+            )
         plot_df = plot_df.sort_values(["query_a", "query_b"])
         
         fig, ax = plt.subplots()
@@ -195,7 +202,7 @@ MAQTQGTRKVCYYYDRKGRRKSRK"""
                 if task.last_excluded_records:
                     with st.expander("除外したレコード一覧を表示"):
                         st.dataframe(pd.DataFrame(task.last_excluded_records))
-                task.render(result)
+                render_rbh_results(result)
             except Exception as e:
                 st.error(f"RBH解析でエラーが発生しました: {e}")
         else:

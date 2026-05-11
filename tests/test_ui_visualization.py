@@ -60,6 +60,32 @@ def test_render_rbh_results_empty():
         mock_warning.assert_called_once()
 
 
+def test_render_rbh_plots_limits_large_scatter_data():
+    large_df = pd.DataFrame({
+        "query_a": [f"q{i}" for i in range(600)],
+        "query_b": [f"s{i}" for i in range(600)],
+        "identity_a_to_b": [90.0] * 600,
+        "identity_b_to_a": [90.0] * 600,
+        "bitscore_a_to_b": list(range(600)),
+        "bitscore_b_to_a": list(range(600)),
+    })
+
+    with patch("pyowasm.ui.components.st.pyplot"), \
+         patch("pyowasm.ui.components.st.write"), \
+         patch("pyowasm.ui.components.st.columns") as mock_columns, \
+         patch("pyowasm.ui.components.st.info") as mock_info, \
+         patch("pyowasm.ui.components.sns.scatterplot") as mock_scatter:
+        mock_col1 = MagicMock()
+        mock_col2 = MagicMock()
+        mock_columns.return_value = [mock_col1, mock_col2]
+
+        render_rbh_plots(large_df)
+
+        mock_info.assert_called_once()
+        plot_data = mock_scatter.call_args.kwargs["data"]
+        assert len(plot_data) == 500
+
+
 class _FakeUpload:
     def __init__(self, text: str) -> None:
         self._text = text
@@ -123,7 +149,6 @@ def test_render_ortholog_mode_faa_upload_executes_task(monkeypatch):
         asyncio.run(render_ortholog_mode())
 
         assert fake_task.called
-        mock_st.warning.assert_not_called()
         status.update.assert_called_once()
 
 

@@ -7,7 +7,6 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 from Bio.Align import PairwiseAligner, substitution_matrices
 from ..base import BaseTask
-from ...ui.components import render_rbh_results
 
 ALLOWED_AMINO_ACIDS = set(substitution_matrices.load("BLOSUM62").alphabet)
 
@@ -297,5 +296,3 @@ class OrthologAnalysisTask(BaseTask):
             "bitscore_rev": "bitscore_b_to_a",
         })
 
-    def render(self, result: pd.DataFrame) -> None:
-        render_rbh_results(result)
