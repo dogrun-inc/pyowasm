@@ -335,22 +335,22 @@ class BiowasmBridge:
                         }};
 
                         const tokenizeCommand = (command) => {{
-                            const matches = command.match(/[^\s"']+|"(?:\\.|[^"])*"|'(?:\\.|[^'])*'/g);
+                            const matches = command.match(/[^\\s"']+|"(?:\\\\.|[^"])*"|'(?:\\\\.|[^'])*'/g);
                             return matches || [];
                         }};
 
                         const normalizeToken = (token) => {{
                             if (token.length >= 2 && token[0] === '"' && token[token.length - 1] === '"') {{
-                                return token.slice(1, -1).replace(/\\"/g, '"');
+                                return token.slice(1, -1).replace(/\\\\"/g, '"');
                             }}
                             if (token.length >= 2 && token[0] === "'" && token[token.length - 1] === "'") {{
-                                return token.slice(1, -1).replace(/\\'/g, "'");
+                                return token.slice(1, -1).replace(/\\\\'/g, "'");
                             }}
                             return token;
                         }};
 
                         const formatPathToken = (path) => {{
-                            if (/\s/.test(path)) {{
+                            if (/\\s/.test(path)) {{
                                 return JSON.stringify(path);
                             }}
                             return path;
@@ -411,6 +411,13 @@ class BiowasmBridge:
             py_debug.append(f"[PY] exception={str(e)}")
             trace = "\n".join(py_debug)
             return f"ブリッジ通信エラー: {str(e)}\n\n--- Debug Trace ---\n{trace}"
+
+    async def smith_waterman(self, query_sequence: str, subject_sequence: str) -> str:
+        command = (
+            f"smith_waterman {self._quote_cli_arg(query_sequence)} "
+            f"{self._quote_cli_arg(subject_sequence)}"
+        )
+        return await self.run_tool("seq-align/smith_waterman/2017.10.18", command)
 
     async def seqtk(self, command: str, files: dict[str, str] = None) -> str:
         full_command = command.strip()
@@ -477,64 +484,268 @@ class SeqtkTask(BaseTask):
 `;
 
       const orthologAnalyzerCode = String.raw`import pandas as pd
+import re
+from collections import defaultdict
 from io import StringIO
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
 from Bio.Align import PairwiseAligner, substitution_matrices
 from ..base import BaseTask
-from ...ui.components import render_rbh_results
+
+ALLOWED_AMINO_ACIDS = set(substitution_matrices.load("BLOSUM62").alphabet)
 
 class OrthologAnalysisTask(BaseTask):
+    def __init__(self) -> None:
+        """直近の入力検証結果を保持する。"""
+        self.last_warnings: list[str] = []
+        self.last_excluded_records: list[dict[str, object]] = []
+
     @staticmethod
-    def _compute_best_hits(seqs_query, seqs_subject):
+    def _normalize_fasta_content(fasta_content: str) -> str:
+        """FASTA 文字列全体から BOM と行末空白を除去する。"""
+        cleaned = fasta_content.replace("\ufeff", "")
+        return "\n".join(line.rstrip() for line in cleaned.splitlines())
+
+    @staticmethod
+    def _normalize_sequence(sequence: str) -> str:
+        """配列文字列をアラインメント前に正規化する。"""
+        return sequence.replace("\ufeff", "").strip().upper()
+
+    def _sanitize_sequences(self, records: list[SeqRecord], species_label: str) -> list[SeqRecord]:
+        """配列を正規化し、BLOSUM62 非対応文字を含むレコードを除外する。"""
+        sanitized_records: list[SeqRecord] = []
+
+        for record in records:
+            normalized = self._normalize_sequence(str(record.seq))
+            invalid_chars = sorted(set(normalized) - ALLOWED_AMINO_ACIDS)
+
+            if invalid_chars:
+                self.last_excluded_records.append({
+                    "species": species_label,
+                    "record_id": record.id,
+                    "invalid_chars": "".join(invalid_chars),
+                    "length": len(normalized),
+                })
+                continue
+
+            sanitized_records.append(
+                SeqRecord(Seq(normalized), id=record.id, description=record.description)
+            )
+
+        return sanitized_records
+
+    @staticmethod
+    def _normalize_text_for_keyword_match(text: str) -> str:
+        """キーワード照合用に区切り文字を空白へ寄せて正規化する。"""
+        normalized = text.replace("_", " ").replace("-", " ").lower()
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _filter_records_by_keywords(
+        self,
+        records: list[SeqRecord],
+        species_label: str,
+        keywords: list[str],
+    ) -> list[SeqRecord]:
+        """description にキーワードを含むレコードのみ残す。"""
+        cleaned_keywords = [k.strip() for k in keywords if k and k.strip()]
+        if not cleaned_keywords:
+            return records
+
+        pattern = re.compile(
+            "|".join(re.escape(self._normalize_text_for_keyword_match(k)) for k in cleaned_keywords),
+            re.IGNORECASE,
+        )
+
+        selected: list[SeqRecord] = []
+        for record in records:
+            normalized_description = self._normalize_text_for_keyword_match(record.description)
+            if pattern.search(normalized_description):
+                selected.append(record)
+
+        filtered_out = len(records) - len(selected)
+        self.last_warnings.append(
+            f"{species_label} をキーワード抽出しました（キーワード {len(cleaned_keywords)}件、"
+            f"抽出 {len(selected)}件、除外 {filtered_out}件）。"
+        )
+        return selected
+
+    def _update_validation_summary(self) -> None:
+        """除外レコード数に応じた警告メッセージを更新する。"""
+        if not self.last_excluded_records:
+            return
+
+        counts: dict[str, int] = {}
+        for record in self.last_excluded_records:
+            species = str(record["species"])
+            counts[species] = counts.get(species, 0) + 1
+
+        summary = "、".join(f"{species} {count}件" for species, count in counts.items())
+        total = len(self.last_excluded_records)
+        self.last_warnings.append(
+            f"BLOSUM62 非対応文字を含むレコードを除外して続行しました（{summary}、合計 {total}件）。"
+        )
+
+    @staticmethod
+    def _build_kmer_index(seqs, k=4):
+        """k-mer インデックスを構築する。{kmer文字列: {seq_id, ...}}"""
+        index = defaultdict(set)
+        for record in seqs:
+            seq = str(record.seq)
+            for i in range(len(seq) - k + 1):
+                index[seq[i:i + k]].add(record.id)
+        return index
+
+    @staticmethod
+    def _get_candidates(query_record, subject_index, subject_kmer_sets, top_n=20, k=4):
+        """クエリに対して Jaccard 類似度上位 top_n の候補 subject ID を返す。"""
+        query_seq = str(query_record.seq)
+        query_kmers = set(query_seq[i:i + k] for i in range(len(query_seq) - k + 1))
+
+        shared_counts = {}
+        for kmer in query_kmers:
+            if kmer in subject_index:
+                for sid in subject_index[kmer]:
+                    shared_counts[sid] = shared_counts.get(sid, 0) + 1
+
+        if not shared_counts:
+            return []
+
+        candidates = []
+        for sid, shared in shared_counts.items():
+            subject_kmers = subject_kmer_sets[sid]
+            union = len(query_kmers) + len(subject_kmers) - shared
+            jaccard = shared / union if union > 0 else 0.0
+            candidates.append((sid, jaccard))
+
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[:top_n]
+
+    def _compute_best_hits_fast(self, seqs_query, seqs_subject, k=4, top_n=20):
+        """k-mer 候補絞り込み + PairwiseAligner で各クエリの最良ヒットを計算する。"""
+        subject_index = self._build_kmer_index(seqs_subject, k)
+        subject_dict = {r.id: r for r in seqs_subject}
+        subject_kmer_sets = {
+            r.id: set(str(r.seq)[i:i + k] for i in range(len(str(r.seq)) - k + 1))
+            for r in seqs_subject
+        }
+
         aligner = PairwiseAligner()
         aligner.substitution_matrix = substitution_matrices.load("BLOSUM62")
         aligner.open_gap_score = -11
         aligner.extend_gap_score = -1
+
         self_scores = {r.id: aligner.score(str(r.seq), str(r.seq)) for r in seqs_query}
+
         rows = []
-        for q in seqs_query:
+        total_aligned = 0
+
+        for query_record in seqs_query:
+            candidates = self._get_candidates(
+                query_record, subject_index, subject_kmer_sets, top_n, k
+            )
+
+            if not candidates:
+                candidates = [(r.id, 0.0) for r in seqs_subject]
+
             best_score = None
             best_sid = None
-            for s in seqs_subject:
-                sc = aligner.score(str(q.seq), str(s.seq))
+
+            for sid, _ in candidates:
+                s_record = subject_dict[sid]
+                sc = aligner.score(str(query_record.seq), str(s_record.seq))
+                total_aligned += 1
                 if best_score is None or sc > best_score:
                     best_score = sc
-                    best_sid = s.id
-            if best_sid is not None:
-                ss = self_scores[q.id]
-                identity = min(best_score / ss * 100, 100.0) if ss > 0 else 0.0
-                rows.append({"query": q.id, "subject": best_sid, "identity": identity, "score": float(best_score)})
-        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["query", "subject", "identity", "score"])
+                    best_sid = sid
 
-    async def run(self, sample_a: str, sample_b: str):
+            if best_sid is not None and best_score is not None:
+                ss = self_scores[query_record.id]
+                identity = min(best_score / ss * 100, 100.0) if ss > 0 else 0.0
+                rows.append({
+                    "query": query_record.id,
+                    "subject": best_sid,
+                    "identity": identity,
+                    "bitscore": float(best_score),
+                })
+
+        total_pairs = len(seqs_query) * len(seqs_subject)
+        self.last_warnings.append(
+            f"k-mer候補絞り込み完了: {total_aligned:,}ペアのみ精密アラインメントを実施"
+            f"（全組合せ {total_pairs:,}ペアから削減、k={k}、top_n={top_n}）"
+        )
+
+        return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["query", "subject", "identity", "bitscore"])
+
+    async def run(
+        self,
+        sample_a: str,
+        sample_b: str,
+        keywords_a=None,
+        keywords_b=None,
+        k: int = 4,
+        top_n: int = 20,
+    ):
+        """k-mer 候補絞り込み + PairwiseAligner で 2 種間の RBH（相互最良ヒット）解析を行う。"""
+        self.last_warnings = []
+        self.last_excluded_records = []
         empty = pd.DataFrame(columns=["query_a", "query_b", "identity_a_to_b", "identity_b_to_a", "bitscore_a_to_b", "bitscore_b_to_a"])
-        seqs_a = list(SeqIO.parse(StringIO(sample_a), "fasta"))
-        seqs_b = list(SeqIO.parse(StringIO(sample_b), "fasta"))
+
+        normalized_a = self._normalize_fasta_content(sample_a)
+        normalized_b = self._normalize_fasta_content(sample_b)
+        seqs_a = list(SeqIO.parse(StringIO(normalized_a), "fasta"))
+        seqs_b = list(SeqIO.parse(StringIO(normalized_b), "fasta"))
+
         if not seqs_a or not seqs_b:
             return empty
-        df_ab = self._compute_best_hits(seqs_a, seqs_b)
-        df_ba = self._compute_best_hits(seqs_b, seqs_a)
-        if df_ab.empty or df_ba.empty:
+
+        if keywords_a:
+            seqs_a = self._filter_records_by_keywords(seqs_a, "Species A", keywords_a)
+        if keywords_b:
+            seqs_b = self._filter_records_by_keywords(seqs_b, "Species B", keywords_b)
+
+        if not seqs_a or not seqs_b:
             return empty
+
+        seqs_a = self._sanitize_sequences(seqs_a, "Species A")
+        seqs_b = self._sanitize_sequences(seqs_b, "Species B")
+
+        if not seqs_a or not seqs_b:
+            return empty
+
+        self._update_validation_summary()
+
+        df_ab = self._compute_best_hits_fast(seqs_a, seqs_b, k=k, top_n=top_n)
+        df_ba = self._compute_best_hits_fast(seqs_b, seqs_a, k=k, top_n=top_n)
+
+        if df_ab.empty or df_ba.empty:
+            self.last_warnings.append("配列検索でヒットが見つかりませんでした。")
+            return empty
+
         rbh = pd.merge(
             df_ab, df_ba,
             left_on=["query", "subject"],
             right_on=["subject", "query"],
             suffixes=("_fwd", "_rev")
         )
+
         if rbh.empty:
+            self.last_warnings.append("相互最良ヒット（RBH）が見つかりませんでした。")
             return empty
-        return rbh[["query_fwd", "subject_fwd", "identity_fwd", "identity_rev", "score_fwd", "score_rev"]].rename(columns={
+
+        self.last_warnings.append(
+            f"✅ RBH解析完了: {len(rbh)}件のオーソログを検出しました（k-mer k={k}、top_n={top_n}）"
+        )
+
+        return rbh[["query_fwd", "subject_fwd", "identity_fwd", "identity_rev", "bitscore_fwd", "bitscore_rev"]].rename(columns={
             "query_fwd": "query_a",
             "subject_fwd": "query_b",
             "identity_fwd": "identity_a_to_b",
             "identity_rev": "identity_b_to_a",
-            "score_fwd": "bitscore_a_to_b",
-            "score_rev": "bitscore_b_to_a",
+            "bitscore_fwd": "bitscore_a_to_b",
+            "bitscore_rev": "bitscore_b_to_a",
         })
 
-    def render(self, result) -> None:
-        render_rbh_results(result)
 `;
 
       const uiComponentsCode = String.raw`import streamlit as st
@@ -545,7 +756,12 @@ from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
 
+MAX_RBH_SCATTER_POINTS = 500
+
 def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
+    """
+    RBHの結果を可視化するグラフを生成・表示します。
+    """
     if rbh_df.empty:
         st.warning("表示するデータがありません。")
         return
@@ -562,7 +778,14 @@ def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
 
     with col2:
         st.write("### ドットプロット (Synteny)")
+        # インデックスに基づく簡易的なドットプロット
+        # クエリ名をソートして並べることで大まかな傾向を見る
         plot_df = rbh_df.copy()
+        if len(plot_df) > MAX_RBH_SCATTER_POINTS:
+            plot_df = plot_df.nlargest(MAX_RBH_SCATTER_POINTS, "bitscore_a_to_b")
+            st.info(
+                f"RBH件数が多いため、ドットプロットは bitscore 上位 {MAX_RBH_SCATTER_POINTS} 件のみ表示しています。"
+            )
         plot_df = plot_df.sort_values(["query_a", "query_b"])
 
         fig, ax = plt.subplots()
@@ -576,13 +799,16 @@ def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
             legend=False,
             alpha=0.6
         )
-        ax.set_xticks([])
+        ax.set_xticks([]) # ラベルが多いと重なるため非表示
         ax.set_yticks([])
         ax.set_xlabel("Species A Genes")
         ax.set_ylabel("Species B Genes")
         st.pyplot(fig)
 
 def render_rbh_results(rbh_df: pd.DataFrame) -> None:
+    """
+    RBH解析の結果サマリーとグラフを表示します。
+    """
     st.divider()
     st.header("📊 オーソログ解析結果 (RBH)")
 
@@ -603,6 +829,9 @@ def render_rbh_results(rbh_df: pd.DataFrame) -> None:
         st.dataframe(rbh_df)
 
 def render_analysis_mode() -> None:
+    """
+    配列統計解析モードのUIを表示します。
+    """
     st.subheader("📊 配列統計解析")
     st.info("BioPythonを使用して、アップロードされたFASTAファイルの基本統計を計算します。")
 
@@ -628,9 +857,12 @@ def render_analysis_mode() -> None:
         display_sequence_stats(analysis_result.records)
 
 async def render_seqtk_mode() -> None:
+    """
+    Seqtk実行モードのUIを表示します。
+    """
     st.subheader("🔧 Wasm ツール実行 (Seqtk)")
-    st.markdown("""
-    JS/Wasm ブリッジを介して、ブラウザ内で seqtk を直接実行します。
+    st.markdown(r"""
+    JS/Wasm ブリッジを介して、ブラウザ内で \\\`seqtk\\\` を直接実行します。
     """)
     from ..bridge.biowasm import bridge
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
@@ -644,11 +876,33 @@ async def render_seqtk_mode() -> None:
     await display_biowasm_ui(vfs_path, input_content=input_content)
 
 async def render_ortholog_mode() -> None:
+    """
+    オーソログ解析デモモードのUIを表示します。
+    """
     st.subheader("🧪 コーヒー品種間オーソログ解析デモ")
     st.markdown("""
     アラビカ種 vs ロブスタ種。
     Wasm 上で RBH 解析パイプラインを実行します。
     """)
+
+    target_keywords = ["caffeine synthase", "methyltransferase", "xanthosine"]
+    st.caption(f"キーワード抽出（ハードコード）: {', '.join(target_keywords)}")
+
+    col_k, col_top = st.columns(2)
+    with col_k:
+        k_size = st.slider(
+            "k-mer サイズ (k)",
+            min_value=3, max_value=6, value=4,
+            help="アミノ酸 k-mer のサイズ。大きいほど精度↑・ヒット率↓。",
+        )
+    with col_top:
+        top_n = st.slider(
+            "候補数 (top_n)",
+            min_value=5, max_value=100, value=20,
+            help="k-mer スコア上位何件に精密アラインメントを実施するか。",
+        )
+
+    input_method = st.radio("入力方法を選択:", ["サンプルテキスト", "FAAファイルをアップロード"], horizontal=True)
 
     sample_a = """>arabica_P1 caffeine_synthase
 MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
@@ -659,24 +913,55 @@ MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
 >robusta_P3 unexpected_hit
 MAQTQGTRKVCYYYDRKGRRKSRK"""
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
-    with col2:
-        st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
+    data_a, data_b = "", ""
+
+    if input_method == "サンプルテキスト":
+        col1, col2 = st.columns(2)
+        with col1:
+            data_a = st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
+        with col2:
+            data_b = st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
+    else:
+        col1, col2 = st.columns(2)
+        with col1:
+            file_a = st.file_uploader("Species A の FAA ファイル", type=["faa", "fasta"])
+            if file_a:
+                data_a = file_a.getvalue().decode("utf-8")
+        with col2:
+            file_b = st.file_uploader("Species B の FAA ファイル", type=["faa", "fasta"])
+            if file_b:
+                data_b = file_b.getvalue().decode("utf-8")
 
     if st.button("RBHパイプラインを実行"):
-        from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
-        task = OrthologAnalysisTask()
-        try:
-            with st.status("BioPython PairwiseAligner でRBH解析中...", expanded=True) as status:
-                result = await task.run(sample_a, sample_b)
-                status.update(label="解析完了!", state="complete")
-            task.render(result)
-        except Exception as e:
-            st.error(f"RBH解析でエラーが発生しました: {e}")
+        if data_a and data_b:
+            from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
+            task = OrthologAnalysisTask()
+            try:
+                with st.status("RBH解析実行中...", expanded=True) as status:
+                    result = await task.run(
+                        data_a,
+                        data_b,
+                        keywords_a=target_keywords,
+                        keywords_b=target_keywords,
+                        k=k_size,
+                        top_n=top_n,
+                    )
+                    status.update(label="解析完了!", state="complete")
+                for warning_message in task.last_warnings:
+                    st.warning(warning_message)
+                if task.last_excluded_records:
+                    with st.expander("除外したレコード一覧を表示"):
+                        st.dataframe(pd.DataFrame(task.last_excluded_records))
+                render_rbh_results(result)
+            except Exception as e:
+                st.error(f"RBH解析でエラーが発生しました: {e}")
+        else:
+            st.warning("両方の入力データが必要です。")
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
+    """
+    配列の統計情報を表示する。
+    """
     st.subheader("解析結果サマリー")
     col1, col2, col3 = st.columns(3)
     col1.metric("配列数", len(records))
@@ -691,14 +976,17 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
         st.divider()
         st.subheader("詳細解析")
 
+        # 配列長の分布
         st.write("### 配列長の分布")
         lengths = [r.length for r in records]
         st.bar_chart(lengths)
 
+        # GC含有量の分布 (%)
         st.write("### GC含有量の分布 (%)")
         gc_contents = [r.gc_content for r in records]
         st.line_chart(gc_contents)
 
+        # 個別レコードの塩基組成
         if len(records) == 1:
             st.write("### 塩基組成")
             comp = records[0].base_composition
@@ -707,9 +995,15 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 st.bar_chart(df_comp.set_index("Base"))
 
 async def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
+    """
+    Wasmバイオ情報学ツールを操作するためのUIを表示する。
+
+    Args:
+        input_filename (str): 入力ファイルのパス（VFS内）。
+    """
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: {input_filename}")
+    st.write(fr"VFS内のファイルを処理します: \\\`{input_filename}\\\`")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
@@ -733,6 +1027,9 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
                     st.error(f"実行エラー: {str(e)}")
 
 def display_header() -> None:
+    """
+    アプリケーションのヘッダーとブランディングを表示する。
+    """
     st.title("🧬 Pyowasm")
     st.caption("Python × WebAssembly × Bioinformatics")
 
