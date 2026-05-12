@@ -4,6 +4,7 @@ scripts/generate_index.py のユニットテスト
 
 import re
 import sys
+import json
 from pathlib import Path
 
 import pytest
@@ -26,36 +27,27 @@ from generate_index import (
 # ---------------------------------------------------------------------------
 
 class TestToJsStringRaw:
-    def test_no_backtick(self):
-        """バッククォートを含まない場合は単純な String.raw テンプレートになる。"""
+    def test_basic_string(self):
+        """String.raw 形式ではなく JSON 文字列として出力される（最新の generate_index.py の挙動）。"""
         result = to_js_string_raw("hello world")
-        assert result == "String.raw`hello world`"
+        assert result == '"hello world"'
 
-    def test_single_backtick(self):
-        """バッククォート1つを含む場合は分割結合式になる。"""
-        result = to_js_string_raw("foo `bar` baz")
-        assert result == 'String.raw`foo ` + "`" + String.raw`bar` + "`" + String.raw` baz`'
+    def test_json_escaping(self):
+        """改行やクォートが JSON エスケープされる。"""
+        result = to_js_string_raw('line1\n"line2"')
+        assert result == '"line1\\n\\"line2\\""'
 
-    def test_multiple_backticks(self):
-        """バッククォート複数を含む場合も正しく分割される。"""
-        # "`a` `b`" には3つのバッククォートがあるので split で4片 → 結合後5片
-        result = to_js_string_raw("`a` `b`")
-        parts = result.split(' + "`" + ')
-        assert len(parts) == 5
-        for part in parts:
-            assert part.startswith("String.raw`")
-            assert part.endswith("`")
+    def test_script_tag_escaping(self):
+        """</script> タグがパースエラー防止のためにエスケープされる。"""
+        result = to_js_string_raw("<div></script></div>")
+        # JSON 文字列内の <\/script> は文字として <\\/script> になる
+        assert "<\\/script>" in result
+        assert "</script>" not in result
 
     def test_empty_string(self):
         """空文字列でも問題なく変換できる。"""
         result = to_js_string_raw("")
-        assert result == "String.raw``"
-
-    def test_newlines_preserved(self):
-        """改行を含むコードが正しく埋め込まれる。"""
-        code = "line1\nline2\nline3"
-        result = to_js_string_raw(code)
-        assert "line1\nline2\nline3" in result
+        assert result == '""'
 
 
 # ---------------------------------------------------------------------------
@@ -78,7 +70,7 @@ class TestReplacePlaceholder:
         finally:
             gi.REPO_ROOT = original
 
-        assert result == "String.raw`x = 1\n`"
+        assert result == '"x = 1\\n"'
 
     def test_raises_when_file_not_found(self, tmp_path):
         """存在しないファイルを指定すると FileNotFoundError が発生する。"""
@@ -150,11 +142,11 @@ class TestMain:
         assert "{{PLACEHOLDER:" not in content
         assert "y = 42" in content
 
-    def test_backtick_in_source_is_escaped(self, tmp_path, monkeypatch):
-        """ソース中のバッククォートが分割結合式に変換される。"""
+    def test_script_tag_in_source_is_escaped(self, tmp_path, monkeypatch):
+        """ソース中の </script> タグがエスケープされる。"""
         import generate_index as gi
         template = "const x = {{PLACEHOLDER:src/mod.py}};"
-        self._setup(tmp_path, template, {"src/mod.py": "s = `hello`\n"})
+        self._setup(tmp_path, template, {"src/mod.py": "s = '</script>'\n"})
 
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
@@ -162,7 +154,7 @@ class TestMain:
 
         main()
         content = (tmp_path / "index.html").read_text(encoding="utf-8")
-        assert '+ "`" +' in content
+        assert '<\\/script>' in content
 
     def test_multiple_placeholders(self, tmp_path, monkeypatch):
         """複数のプレースホルダーがそれぞれ対応ファイルで置換される。"""
