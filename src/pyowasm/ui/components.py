@@ -103,17 +103,14 @@ async def render_analysis_mode() -> None:
             from ..tasks.local.sequence_analyzer import SequenceAnalysisTask
             from ..bridge.biowasm import bridge
 
-            with st.status("Python (Wasm) で解析中...", expanded=True) as status:
-                fasta_data = uploaded_file.getvalue().decode("utf-8")
-                bridge.write_to_vfs("input.fasta", fasta_data)
+            fasta_data = uploaded_file.getvalue().decode("utf-8")
+            bridge.write_to_vfs("input.fasta", fasta_data)
 
-                parser = FastaParserTask()
-                parse_result = parser.run(fasta_data)
+            parser = FastaParserTask()
+            parse_result = parser.run(fasta_data)
 
-                analyzer = SequenceAnalysisTask()
-                analysis_result = analyzer.run(parse_result.records)
-
-                status.update(label="解析完了!", state="complete")
+            analyzer = SequenceAnalysisTask()
+            analysis_result = analyzer.run(parse_result.records)
 
             # 結果を表示し、オーバーレイを消すためにリラン
             st.session_state["analysis_result"] = analysis_result.records
@@ -202,16 +199,14 @@ async def render_ortholog_mode() -> None:
             from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
             task = OrthologAnalysisTask()
             try:
-                with st.status("RBH解析実行中...", expanded=True) as status:
-                    result = task.run(
-                        data_a,
-                        data_b,
-                        keywords_a=target_keywords,
-                        keywords_b=target_keywords,
-                        k=k_size,
-                        top_n=top_n,
-                    )
-                    status.update(label="解析完了!", state="complete")
+                result = task.run(
+                    data_a,
+                    data_b,
+                    keywords_a=target_keywords,
+                    keywords_b=target_keywords,
+                    k=k_size,
+                    top_n=top_n,
+                )
                 
                 # 結果を保持（リランで消えないように）
                 st.session_state["ortholog_result"] = result
