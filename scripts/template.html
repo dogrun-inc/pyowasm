@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <title>Pyowasm</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.css"
+    />
+    <style>
+      #root { margin-top: 2rem; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.js"></script>
+    <script>
+      const schemaCode = {{PLACEHOLDER:src/pyowasm/models/schema.py}};
+
+      const baseTaskCode = {{PLACEHOLDER:src/pyowasm/tasks/base.py}};
+
+      const fastaParserCode = {{PLACEHOLDER:src/pyowasm/tasks/local/fasta_parser.py}};
+
+      const sequenceAnalyzerCode = {{PLACEHOLDER:src/pyowasm/tasks/local/sequence_analyzer.py}};
+
+      const statsCode = {{PLACEHOLDER:src/pyowasm/core/stats.py}};
+
+      const biowasmBridgeCode = {{PLACEHOLDER:src/pyowasm/bridge/biowasm.py}};
+
+      const seqtkTaskCode = {{PLACEHOLDER:src/pyowasm/tasks/wasm/seqtk.py}};
+
+      const orthologAnalyzerCode = {{PLACEHOLDER:src/pyowasm/tasks/wasm/ortholog_analyzer.py}};
+
+      const uiComponentsCode = {{PLACEHOLDER:src/pyowasm/ui/components.py}};
+
+      const appCode = {{PLACEHOLDER:src/pyowasm/app.py}};
+
+      stlite.mount(
+        {
+          requirements: ["biopython", "pandas", "seaborn", "matplotlib"],
+          entrypoint: "pyowasm/app.py",
+          files: {
+            "pyowasm/__init__.py": "",
+            "pyowasm/app.py": appCode,
+            "pyowasm/models/__init__.py": "",
+            "pyowasm/models/schema.py": schemaCode,
+            "pyowasm/tasks/__init__.py": "",
+            "pyowasm/tasks/base.py": baseTaskCode,
+            "pyowasm/tasks/local/__init__.py": "",
+            "pyowasm/tasks/local/fasta_parser.py": fastaParserCode,
+            "pyowasm/tasks/local/sequence_analyzer.py": sequenceAnalyzerCode,
+            "pyowasm/tasks/wasm/__init__.py": "",
+            "pyowasm/tasks/wasm/seqtk.py": seqtkTaskCode,
+            "pyowasm/tasks/wasm/ortholog_analyzer.py": orthologAnalyzerCode,
+            "pyowasm/core/__init__.py": "",
+            "pyowasm/core/stats.py": statsCode,
+            "pyowasm/bridge/__init__.py": "",
+            "pyowasm/bridge/biowasm.py": biowasmBridgeCode,
+            "pyowasm/ui/__init__.py": "",
+            "pyowasm/ui/components.py": uiComponentsCode,
+          },
+        },
+        document.getElementById("root")
+      );
+    </script>
+  </body>
+</html>

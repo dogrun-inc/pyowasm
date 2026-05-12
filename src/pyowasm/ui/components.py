@@ -106,7 +106,7 @@ def render_analysis_mode() -> None:
 
         display_sequence_stats(analysis_result.records)
 
-async def render_seqtk_mode() -> None:
+def render_seqtk_mode() -> None:
     """
     Seqtk実行モードのUIを表示します。
     """
@@ -115,6 +115,10 @@ async def render_seqtk_mode() -> None:
     JS/Wasm ブリッジを介して、ブラウザ内で \`seqtk\` を直接実行します。
     """)
     from ..bridge.biowasm import bridge
+    if not bridge.is_available():
+        st.info(bridge.unavailable_message())
+        return
+
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
     vfs_path = "input.fasta"
     input_content = None
@@ -123,9 +127,9 @@ async def render_seqtk_mode() -> None:
         input_content = uploaded_file.getvalue().decode("utf-8")
         bridge.write_to_vfs(vfs_path, input_content)
 
-    await display_biowasm_ui(vfs_path, input_content=input_content)
+    display_biowasm_ui(vfs_path, input_content=input_content)
 
-async def render_ortholog_mode() -> None:
+def render_ortholog_mode() -> None:
     """
     オーソログ解析デモモードのUIを表示します。
     """
@@ -188,7 +192,7 @@ MAQTQGTRKVCYYYDRKGRRKSRK"""
             task = OrthologAnalysisTask()
             try:
                 with st.status("RBH解析実行中...", expanded=True) as status:
-                    result = await task.run(
+                    result = task.run(
                         data_a,
                         data_b,
                         keywords_a=target_keywords,
@@ -245,13 +249,15 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 st.bar_chart(df_comp.set_index("Base"))
 
 
-async def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
+def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
     """
     Wasmバイオ情報学ツールを操作するためのUIを表示する。
 
     Args:
         input_filename (str): 入力ファイルのパス（VFS内）。
     """
+    import time
+    
     st.divider()
     st.header("🛠️ Wasm Tools (biowasm)")
     st.write(f"VFS内のファイルを処理します: \\`{input_filename}\\`")
@@ -260,24 +266,44 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     selected_tool = st.selectbox("ツールを選択", tool_options)
 
     if selected_tool == "seqtk":
-        command = st.text_input("コマンド引数", value="seq -a")
-        
-        result_container = st.container()
-        
-        if st.button("Wasmで実行"):
-            from ..tasks.wasm.seqtk import SeqtkTask
-            
-            try:
-                task = SeqtkTask()
-                with st.spinner(f"{selected_tool} を実行中..."):
-                    # 直接 await を使用して結果を待機する
-                    result = await task.run(input_filename, command, input_content=input_content)
+        from ..tasks.wasm.seqtk import SeqtkTask
 
+        command = st.text_input("コマンド引数", value="seq -a")
+
+        result_container = st.container()
+
+        job_key = "pyowasm_seqtk_job_id"
+        job_start_time_key = "pyowasm_seqtk_job_start_time"
+        task = SeqtkTask()
+
+        if st.button("🚀 Wasmで実行", key="pyowasm_seqtk_run", use_container_width=True):
+            job_id = task.start(input_filename, command, input_content=input_content)
+            if job_id.startswith("ERROR:"):
                 with result_container:
-                    task.render(result)
-            except Exception as e:
+                    st.error(job_id.replace("ERROR:", "", 1).strip())
+            else:
+                st.session_state[job_key] = job_id
+                st.session_state[job_start_time_key] = time.time()
                 with result_container:
-                    st.error(f"実行エラー: {str(e)}")
+                    st.info("🔄 seqtk ジョブを開始しました。下の「結果を確認」ボタンを押してください。")
+
+        current_job_id = st.session_state.get(job_key)
+        if current_job_id:
+            status = task.poll(str(current_job_id))
+
+            if status["status"] == "running":
+                elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
+                with result_container:
+                    st.info(f"⏳ seqtk 実行中です... ({elapsed:.1f}秒経過)")
+                if st.button("🔄 結果を確認", key="pyowasm_seqtk_refresh", use_container_width=True):
+                    st.rerun()
+            else:
+                with result_container:
+                    task.render(status["result"])
+                task.cleanup(str(current_job_id))
+                del st.session_state[job_key]
+                if job_start_time_key in st.session_state:
+                    del st.session_state[job_start_time_key]
 
 def display_header() -> None:
     """

@@ -21,6 +21,6 @@ mode = st.sidebar.radio(
 if mode == "1. 配列統計 (BioPython)":
     render_analysis_mode()
 elif mode == "2. Wasmツール直接実行 (Seqtk)":
-    await render_seqtk_mode()
+    render_seqtk_mode()
 else:
-    await render_ortholog_mode()
+    render_ortholog_mode()
