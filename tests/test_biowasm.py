@@ -157,42 +157,39 @@ def test_biowasm_bridge_write_to_vfs(biowasm_modules):
     biowasm_modules["js"].FS.writeFile.assert_called_once_with(filename, content)
 
 
-@pytest.mark.asyncio
-async def test_seqtk_task_run(biowasm_modules):
+def test_seqtk_task_run(biowasm_modules):
     task = biowasm_modules["seqtk_module"].SeqtkTask()
-    biowasm_modules["bridge_module"].bridge.seqtk = AsyncMock(return_value="mocked output")
+    biowasm_modules["bridge_module"].bridge.start_tool_job = MagicMock(return_value="job-1")
 
-    result = await task.run("input.fasta", "seq -a")
+    result = task.start("input.fasta", "seq -a")
 
-    assert result == "mocked output"
-    biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
-        "seq -a input.fasta", files=None
+    assert result == "job-1"
+    biowasm_modules["bridge_module"].bridge.start_tool_job.assert_called_once_with(
+        "seqtk/1.3", "seqtk seq -a input.fasta", files=None
     )
 
 
-@pytest.mark.asyncio
-async def test_seqtk_task_run_does_not_duplicate_input_filename(biowasm_modules):
+def test_seqtk_task_run_does_not_duplicate_input_filename(biowasm_modules):
     task = biowasm_modules["seqtk_module"].SeqtkTask()
-    biowasm_modules["bridge_module"].bridge.seqtk = AsyncMock(return_value="mocked output")
+    biowasm_modules["bridge_module"].bridge.start_tool_job = MagicMock(return_value="job-2")
 
-    result = await task.run("input.fasta", "seq -a input.fasta")
+    result = task.start("input.fasta", "seq -a input.fasta")
 
-    assert result == "mocked output"
-    biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
-        "seq -a input.fasta", files=None
+    assert result == "job-2"
+    biowasm_modules["bridge_module"].bridge.start_tool_job.assert_called_once_with(
+        "seqtk/1.3", "seqtk seq -a input.fasta", files=None
     )
 
 
-@pytest.mark.asyncio
-async def test_seqtk_task_run_with_input_content_mounts_file(biowasm_modules):
+def test_seqtk_task_run_with_input_content_mounts_file(biowasm_modules):
     task = biowasm_modules["seqtk_module"].SeqtkTask()
-    biowasm_modules["bridge_module"].bridge.seqtk = AsyncMock(return_value="mocked output")
+    biowasm_modules["bridge_module"].bridge.start_tool_job = MagicMock(return_value="job-3")
 
-    result = await task.run("input.fasta", "seq -a", input_content=">seq1\nATGC")
+    result = task.start("input.fasta", "seq -a", input_content=">seq1\nATGC")
 
-    assert result == "mocked output"
-    biowasm_modules["bridge_module"].bridge.seqtk.assert_awaited_once_with(
-        "seq -a input.fasta", files={"input.fasta": ">seq1\nATGC"}
+    assert result == "job-3"
+    biowasm_modules["bridge_module"].bridge.start_tool_job.assert_called_once_with(
+        "seqtk/1.3", "seqtk seq -a input.fasta", files={"input.fasta": ">seq1\nATGC"}
     )
 
 
@@ -209,8 +206,7 @@ def test_seqtk_task_render(biowasm_modules):
     mock_code.assert_called_once_with("test result")
 
 
-@pytest.mark.asyncio
-async def test_display_biowasm_ui_renders_controls_when_idle(biowasm_modules):
+def test_display_biowasm_ui_renders_controls_when_idle(biowasm_modules):
     components = biowasm_modules["components_module"]
 
     with patch.object(components.st, "divider") as mock_divider, \
@@ -220,7 +216,7 @@ async def test_display_biowasm_ui_renders_controls_when_idle(biowasm_modules):
          patch.object(components.st, "text_input", return_value="seq -a") as mock_text_input, \
          patch.object(components.st, "container", return_value=MagicMock()) as mock_container, \
          patch.object(components.st, "button", return_value=False) as mock_button:
-        await components.display_biowasm_ui("/tmp/input.fasta")
+        components.display_biowasm_ui("/tmp/input.fasta")
 
     mock_divider.assert_called_once()
     mock_header.assert_called_once_with("🛠️ Wasm Tools (biowasm)")
@@ -231,8 +227,7 @@ async def test_display_biowasm_ui_renders_controls_when_idle(biowasm_modules):
     mock_button.assert_called_once_with("Wasmで実行")
 
 
-@pytest.mark.asyncio
-async def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules):
+def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules):
     components = biowasm_modules["components_module"]
     seqtk_module = biowasm_modules["seqtk_module"]
     result_container = MagicMock()
@@ -245,8 +240,8 @@ async def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules)
     # We don't need to mock loop if we use pytest-asyncio properly, 
     # but the code itself might be using it.
     
-    async def fake_run(self, input_filename, command, input_content=None):
-        return f"{command}::{input_filename}"
+    def fake_start(self, input_filename, command, input_content=None):
+        return "job-1"
 
     with patch.object(components.st, "divider"), \
          patch.object(components.st, "header"), \
@@ -254,11 +249,12 @@ async def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules)
          patch.object(components.st, "selectbox", return_value="seqtk"), \
          patch.object(components.st, "text_input", return_value="seq -A"), \
          patch.object(components.st, "container", return_value=result_container), \
-         patch.object(components.st, "button", return_value=True), \
-         patch.object(components.st, "spinner", return_value=spinner), \
-         patch.object(seqtk_module.SeqtkTask, "run", new=fake_run), \
+         patch.object(components.st, "button", side_effect=[True, False]), \
+         patch.object(seqtk_module.SeqtkTask, "start", new=fake_start), \
+         patch.object(seqtk_module.SeqtkTask, "poll", return_value={"status": "success", "result": "seq -A::/tmp/input.fasta"}), \
+         patch.object(seqtk_module.SeqtkTask, "cleanup"), \
          patch.object(seqtk_module.SeqtkTask, "render") as mock_render:
-        await components.display_biowasm_ui("/tmp/input.fasta")
+        components.display_biowasm_ui("/tmp/input.fasta")
 
     mock_render.assert_called_once_with("seq -A::/tmp/input.fasta")
 
@@ -351,8 +347,7 @@ def test_seqtk_task_render_error_with_debug_trace(biowasm_modules):
     mock_expander.assert_called_once_with("デバッグトレースを表示", expanded=True)
 
 
-@pytest.mark.asyncio
-async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules):
+def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules):
     """task.run() が例外を投げた場合、st.error で表示"""
     components = biowasm_modules["components_module"]
     seqtk_module = biowasm_modules["seqtk_module"]
@@ -360,7 +355,7 @@ async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules)
     result_container.__enter__.return_value = result_container
     result_container.__exit__.return_value = None
 
-    async def fake_run_with_error(self, input_filename, command, input_content=None):
+    def fake_start_with_error(self, input_filename, command, input_content=None):
         raise RuntimeError("Task execution failed")
 
     with patch.object(components.st, "divider"), \
@@ -369,11 +364,38 @@ async def test_display_biowasm_ui_handles_exception_in_task_run(biowasm_modules)
          patch.object(components.st, "selectbox", return_value="seqtk"), \
          patch.object(components.st, "text_input", return_value="seq -a"), \
          patch.object(components.st, "container", return_value=result_container), \
-         patch.object(components.st, "button", return_value=True), \
-         patch.object(components.st, "spinner"), \
+         patch.object(components.st, "button", side_effect=[True, False]), \
          patch.object(components.st, "error") as mock_error, \
-         patch.object(seqtk_module.SeqtkTask, "run", new=fake_run_with_error):
-        await components.display_biowasm_ui("/tmp/input.fasta")
+         patch.object(seqtk_module.SeqtkTask, "start", new=fake_start_with_error):
+        components.display_biowasm_ui("/tmp/input.fasta")
 
     mock_error.assert_called_once()
     assert "Task execution failed" in str(mock_error.call_args)
+
+
+def test_biowasm_bridge_reports_unavailable_in_non_pyodide_env(monkeypatch):
+    """Pyodide 非依存環境では Wasm 利用不可メッセージを返す。"""
+    monkeypatch.delitem(sys.modules, "js", raising=False)
+    monkeypatch.delitem(sys.modules, "pyodide", raising=False)
+    monkeypatch.delitem(sys.modules, "pyodide.ffi", raising=False)
+
+    bridge_module = importlib.import_module("pyowasm.bridge.biowasm")
+    bridge_module = importlib.reload(bridge_module)
+    bridge = bridge_module.BiowasmBridge()
+
+    assert bridge.is_available() is False
+    assert "Wasm ツールを利用できません" in bridge.unavailable_message()
+
+
+def test_render_seqtk_mode_shows_info_when_wasm_unavailable(biowasm_modules):
+    """Wasm 未対応環境では Seqtk UI が説明メッセージのみ表示する。"""
+    components = biowasm_modules["components_module"]
+
+    with patch("pyowasm.bridge.biowasm.bridge.is_available", return_value=False), \
+         patch("pyowasm.bridge.biowasm.bridge.unavailable_message", return_value="Wasm無効"), \
+         patch.object(components.st, "info") as mock_info, \
+         patch.object(components.st, "file_uploader") as mock_uploader:
+        components.render_seqtk_mode()
+
+    mock_info.assert_called_once_with("Wasm無効")
+    mock_uploader.assert_not_called()

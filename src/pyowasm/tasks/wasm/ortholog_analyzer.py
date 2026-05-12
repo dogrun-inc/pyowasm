@@ -222,7 +222,7 @@ class OrthologAnalysisTask(BaseTask):
 
         return pd.DataFrame(rows) if rows else pd.DataFrame(columns=["query", "subject", "identity", "bitscore"])
 
-    async def run(
+    def run(
         self,
         sample_a: str,
         sample_b: str,
