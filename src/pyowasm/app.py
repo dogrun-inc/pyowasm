@@ -23,7 +23,7 @@ async def main():
     if mode == "1. 配列統計 (BioPython)":
         await render_analysis_mode()
     elif mode == "2. Wasmツール (biowasm)":
-        render_seqtk_mode()
+        await render_seqtk_mode()
     else:
         await render_ortholog_mode()
 

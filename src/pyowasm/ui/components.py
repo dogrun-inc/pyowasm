@@ -126,7 +126,7 @@ async def render_analysis_mode() -> None:
         display_sequence_stats(st.session_state["analysis_result"])
 
 
-def render_seqtk_mode() -> None:
+async def render_seqtk_mode() -> None:
     """
     Seqtk実行モードのUIを表示します。
     """
@@ -147,7 +147,7 @@ def render_seqtk_mode() -> None:
         input_content = uploaded_file.getvalue().decode("utf-8")
         bridge.write_to_vfs(vfs_path, input_content)
 
-    display_biowasm_ui(vfs_path, input_content=input_content)
+    await display_biowasm_ui(vfs_path, input_content=input_content)
 
 async def render_ortholog_mode() -> None:
     """
@@ -271,7 +271,7 @@ def display_sequence_stats(records: List[SequenceRecord]) -> None:
                 st.bar_chart(df_comp.set_index("Base"))
 
 
-def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
+async def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None) -> None:
     """
     Wasmバイオ情報学ツールを操作するためのUIを表示する。
 
@@ -286,6 +286,8 @@ def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None)
 
     is_busy = st.session_state.get("is_processing", False) or st.session_state.get("pyowasm_seqtk_job_id") is not None
 
+    result_key = "pyowasm_seqtk_last_result"
+
     if selected_tool == "seqtk":
         from ..tasks.wasm.seqtk import SeqtkTask
 
@@ -298,6 +300,10 @@ def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None)
         task = SeqtkTask()
 
         if st.button("🚀 Wasmで実行", key="pyowasm_seqtk_run", use_container_width=True, disabled=is_busy):
+            # 新しい実行の前に過去の結果をクリア
+            if result_key in st.session_state:
+                del st.session_state[result_key]
+                
             job_id = task.start(input_filename, command, input_content=input_content)
             if job_id.startswith("ERROR:"):
                 with result_container:
@@ -305,26 +311,39 @@ def display_biowasm_ui(input_filename: str, input_content: Optional[str] = None)
             else:
                 st.session_state[job_key] = job_id
                 st.session_state[job_start_time_key] = time.time()
-                with result_container:
-                    st.info("🔄 seqtk ジョブを開始しました。下の「結果を確認」ボタンを押してください。")
+                # 実行開始時にオーバーレイを表示
+                st.markdown("<style>#loading-overlay { display: flex !important; }</style>", unsafe_allow_html=True)
+                await asyncio.sleep(0.1)
+                st.rerun()
 
         current_job_id = st.session_state.get(job_key)
         if current_job_id:
-            status = task.poll(str(current_job_id))
-
-            if status["status"] == "running":
-                elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
-                with result_container:
-                    st.info(f"⏳ seqtk 実行中です... ({elapsed:.1f}秒経過)")
-                if st.button("🔄 結果を確認", key="pyowasm_seqtk_refresh", use_container_width=True):
+            # ポーリングループ
+            while True:
+                status = task.poll(str(current_job_id))
+                if status["status"] == "running":
+                    elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
+                    with result_container:
+                        # 画面上の進捗表示
+                        st.info(f"⏳ seqtk 実行中です... ({elapsed:.1f}秒経過)")
+                    # オーバーレイを確実に表示
+                    st.markdown("<style>#loading-overlay { display: flex !important; }</style>", unsafe_allow_html=True)
+                    await asyncio.sleep(0.5)
+                else:
+                    # 完了
+                    st.session_state[result_key] = status["result"]
+                    task.cleanup(str(current_job_id))
+                    del st.session_state[job_key]
+                    if job_start_time_key in st.session_state:
+                        del st.session_state[job_start_time_key]
+                    # オーバーレイを消すためにリラン
                     st.rerun()
-            else:
-                with result_container:
-                    task.render(status["result"])
-                task.cleanup(str(current_job_id))
-                del st.session_state[job_key]
-                if job_start_time_key in st.session_state:
-                    del st.session_state[job_start_time_key]
+                    break
+
+        # 保存された結果がある場合は表示
+        if result_key in st.session_state:
+            with result_container:
+                task.render(st.session_state[result_key])
 
 def display_header() -> None:
     """
