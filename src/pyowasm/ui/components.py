@@ -313,11 +313,23 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
 
         current_job_id = st.session_state.get(job_key)
         if current_job_id:
-            # ポーリングループ
+            # ポーリングループ（タイムアウト設定: 60秒）
+            POLLING_TIMEOUT = 60.0
             while True:
+                elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
+                
+                if elapsed > POLLING_TIMEOUT:
+                    with result_container:
+                        st.error(f"⌛ 処理がタイムアウトしました ({POLLING_TIMEOUT}秒)。大きなファイルの場合は、ブラウザのメモリ制限やWasmの性能制限に達した可能性があります。")
+                    task.cleanup(str(current_job_id))
+                    del st.session_state[job_key]
+                    if job_start_time_key in st.session_state:
+                        del st.session_state[job_start_time_key]
+                    st.rerun()
+                    break
+
                 status = task.poll(str(current_job_id))
                 if status["status"] == "running":
-                    elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
                     with result_container:
                         # 画面上の進捗表示
                         st.info(f"⏳ seqtk 実行中です... ({elapsed:.1f}秒経過)")

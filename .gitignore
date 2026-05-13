@@ -147,6 +147,4 @@ cython_debug/
 .idea/
 
 # Pyowasm transient files
-*.fasta
-*.faa
-*.fastq
+input.fasta

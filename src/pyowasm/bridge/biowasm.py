@@ -279,7 +279,7 @@ class BiowasmBridge:
         except Exception:
             return
 
-    async def run_tool(self, tool: str, args: str, files: dict[str, str] = None) -> str:
+    async def run_tool(self, tool: str, args: str, files: dict[str, str] | None = None) -> str:
         """
         Wasmツールを実行します。
         files: { "filename": "content" } の辞書。Aioliにマウントされます。
@@ -496,7 +496,7 @@ class BiowasmBridge:
         )
         return await self.run_tool("seq-align/smith_waterman/2017.10.18", command)
 
-    async def seqtk(self, command: str, files: dict[str, str] = None) -> str:
+    async def seqtk(self, command: str, files: dict[str, str] | None = None) -> str:
         """
         seqtkを実行します。
         """

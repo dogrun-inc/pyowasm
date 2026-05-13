@@ -40,8 +40,8 @@ class TestToJsStringRaw:
     def test_script_tag_escaping(self):
         """</script> タグがパースエラー防止のためにエスケープされる。"""
         result = to_js_string_raw("<div></script></div>")
-        # JSON 文字列内の <\/script> は文字として <\\/script> になる
-        assert "<\\/script>" in result
+        # </script> が <\/script> に置換されていることを確認。
+        assert r"<\/script>" in result
         assert "</script>" not in result
 
     def test_empty_string(self):
