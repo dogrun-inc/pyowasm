@@ -329,3 +329,39 @@ async def test_render_seqtk_mode_shows_info_when_wasm_unavailable(biowasm_module
     # 最初の st.subheader 等は無視して info が呼ばれたか確認
     mock_info.assert_any_call("Wasm無効")
     mock_uploader.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_display_biowasm_ui_handles_timeout(biowasm_modules):
+    """ポーリングがタイムアウトした場合にエラーを表示しクリーンアップされることを確認"""
+    components = biowasm_modules["components_module"]
+    seqtk_module = biowasm_modules["seqtk_module"]
+    result_container = MagicMock()
+    result_container.__enter__.return_value = result_container
+    result_container.__exit__.return_value = None
+
+    # 開始時間と現在時間を操作してタイムアウトをシミュレート
+    start_time = 1000.0
+    # elapsed = 1100 - 1000 = 100 > 60 (timeout)
+    current_time = 1100.0
+
+    with patch.object(components.st, "selectbox", return_value="seqtk"), \
+         patch.object(components.st, "text_input", return_value="seq -a"), \
+         patch.object(components.st, "number_input", return_value=60), \
+         patch.object(components.st, "container", return_value=result_container), \
+         patch.object(components.st, "button", return_value=False), \
+         patch.object(components.st, "rerun") as mock_rerun, \
+         patch.object(components.st, "error") as mock_error, \
+         patch.object(components.time, "time", return_value=current_time), \
+         patch.object(seqtk_module.SeqtkTask, "cleanup") as mock_cleanup:
+        
+        components.st.session_state["pyowasm_seqtk_job_id"] = "job-timeout"
+        components.st.session_state["pyowasm_seqtk_job_start_time"] = start_time
+        
+        await components.display_biowasm_ui("/tmp/input.fasta")
+
+    mock_error.assert_called_once()
+    assert "タイムアウトしました" in str(mock_error.call_args)
+    mock_cleanup.assert_called_once_with("job-timeout")
+    mock_rerun.assert_called_once()
+    assert "pyowasm_seqtk_job_id" not in components.st.session_state

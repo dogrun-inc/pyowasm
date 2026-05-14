@@ -3,6 +3,7 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import asyncio
+import time
 from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
@@ -273,7 +274,6 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     Args:
         input_filename (str): 入力ファイルのパス（VFS内）。
     """
-    import time
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
