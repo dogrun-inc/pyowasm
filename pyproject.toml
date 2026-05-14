@@ -1,30 +1,46 @@
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
+
 [project]
 name = "pyowasm"
-version = "0.1.0"
+version = "0.3"
 authors = [
-  { name="Your Name", email="your.email@example.com" },
+  { name = "Dogrun Inc.", email = "info@dogrun.jp" },
 ]
-description = "A Python WebAssembly tool/wrapper."
+description = """
+Python + WebAssembly で動くブラウザバイオインフォマティクスツール。
+Pyodide（ブラウザ Python 実行環境）と WebAssembly を組み合わせ、
+軽量なバイオインフォマティクス処理を「環境構築なし」で実行できる。
+Browser-based bioinformatics tool with Python + WebAssembly. Combines Pyodide and WebAssembly for lightweight, zero-setup sequence analysis in the browser.
+"""
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "biopython",
     "streamlit",
     "pandas",
+    "seaborn",
+    "matplotlib",
+    "pytest-asyncio",
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+license = { file = "LICENSE" }
+
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/pyowasm"
-"Bug Tracker" = "https://github.com/yourusername/pyowasm/issues"
+Homepage = "https://github.com/dogrun-inc/pyowasm"
+BugTracker = "https://github.com/dogrun-inc/pyowasm/issues"
+
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+# ビルド: index.html の再生成は scripts/generate_index.py を実行してください。
+# python scripts/generate_index.py
