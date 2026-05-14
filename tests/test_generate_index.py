@@ -109,12 +109,13 @@ class TestMain:
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
         monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py"])
 
         main()
         assert (tmp_path / "index.html").exists()
 
     def test_output_starts_with_generated_header(self, tmp_path, monkeypatch):
-        """生成ファイルの先頭に自動生成コメントが付く。"""
+        """通常時、生成ファイルの先頭に自動生成コメントが付く。"""
         import generate_index as gi
         template = "<html>{{PLACEHOLDER:src/app.py}}</html>"
         self._setup(tmp_path, template, {"src/app.py": "pass\n"})
@@ -122,10 +123,26 @@ class TestMain:
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
         monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py"])
 
         main()
         content = (tmp_path / "index.html").read_text(encoding="utf-8")
         assert content.startswith(GENERATED_HEADER)
+
+    def test_output_does_not_have_header_when_pretty(self, tmp_path, monkeypatch):
+        """--pretty 指定時、生成ファイルの先頭に自動生成コメントが付かない。"""
+        import generate_index as gi
+        template = "<html>{{PLACEHOLDER:src/app.py}}</html>"
+        self._setup(tmp_path, template, {"src/app.py": "pass\n"})
+
+        monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
+        monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
+        monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py", "--pretty"])
+
+        main()
+        content = (tmp_path / "index.html").read_text(encoding="utf-8")
+        assert not content.startswith(GENERATED_HEADER)
 
     def test_placeholder_is_replaced(self, tmp_path, monkeypatch):
         """プレースホルダーが Python コードに置換される。"""
@@ -136,6 +153,7 @@ class TestMain:
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
         monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py"])
 
         main()
         content = (tmp_path / "index.html").read_text(encoding="utf-8")
@@ -151,6 +169,7 @@ class TestMain:
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
         monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py"])
 
         main()
         content = (tmp_path / "index.html").read_text(encoding="utf-8")
@@ -168,6 +187,7 @@ class TestMain:
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
         monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py"])
 
         main()
         content = (tmp_path / "index.html").read_text(encoding="utf-8")
@@ -193,6 +213,7 @@ class TestMain:
         monkeypatch.setattr(gi, "REPO_ROOT", tmp_path)
         monkeypatch.setattr(gi, "TEMPLATE_PATH", tmp_path / "scripts" / "template.html")
         monkeypatch.setattr(gi, "OUTPUT_PATH", tmp_path / "index.html")
+        monkeypatch.setattr(sys, "argv", ["generate_index.py"])
 
         with pytest.raises(SystemExit):
             main()

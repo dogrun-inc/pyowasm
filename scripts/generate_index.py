@@ -94,7 +94,8 @@ def main() -> None:
         sys.exit(1)
 
     output = PLACEHOLDER_RE.sub(lambda match: replace_placeholder(match, pretty=args.pretty), template)
-    output = GENERATED_HEADER + output
+    if not args.pretty:
+        output = GENERATED_HEADER + output
 
     OUTPUT_PATH.write_text(output, encoding="utf-8")
     print(f"[OK] 生成完了: {OUTPUT_PATH}")
