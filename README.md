@@ -1,6 +1,17 @@
-# pyowasm
+
+# 🧬 Pyowasm
+
+[![GitHub Pages](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blueviolet?logo=github)](https://dogrun-inc.github.io/pyowasm/)
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue?logo=python)
+![Streamlit](https://img.shields.io/badge/Streamlit-%23FF4B4B.svg?logo=streamlit&logoColor=white)
+![BioPython](https://img.shields.io/badge/BioPython-3776AB?logo=python&logoColor=white)
+![Pyodide](https://img.shields.io/badge/Pyodide-654FF0?logo=webassembly&logoColor=white)
+![biowasm](https://img.shields.io/badge/biowasm-00B5C9?logo=webassembly&logoColor=white)
+![License](https://img.shields.io/github/license/dogrun-inc/pyowasm)
 
 **Browser-based Bioinformatics Tool with Python + WebAssembly | Python + WebAssembly で動くブラウザバイオインフォマティクスツール**
+
+**公開デモ / Live Demo:** [https://dogrun-inc.github.io/pyowasm/](https://dogrun-inc.github.io/pyowasm/)
 
 ## 概要 / Overview
 
