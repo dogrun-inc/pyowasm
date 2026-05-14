@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, shrink-to-fit=no"
+    />
+    <title>Pyowasm</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧬</text></svg>"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.css"
+    />
+    <style>
+      #root { margin-top: 0; }
+      header { display: none !important; }
+      footer { display: none !important; }
+      .stAppDeployButton { display: none !important; }
+
+      /* グローバルオーバーレイ */
+      #loading-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(128, 128, 128, 0.4);
+        z-index: 2147483647 !important;
+        justify-content: center;
+        align-items: center;
+        flex-direction: column;
+        cursor: wait;
+      }
+      .loader {
+        border: 12px solid #f3f3f3;
+        border-top: 12px solid #3498db;
+        border-radius: 50%;
+        width: 80px;
+        height: 80px;
+        animation: spin 2s linear infinite;
+        margin-bottom: 20px;
+      }
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      .loading-text {
+        color: white;
+        font-family: sans-serif;
+        font-size: 1.2rem;
+        font-weight: bold;
+        text-shadow: 1px 1px 2px black;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="loading-overlay">
+      <div class="loader"></div>
+      <div class="loading-text">解析実行中...</div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable/build/stlite.js"></script>
+    <script>
+      const schemaCode = {{PLACEHOLDER:src/pyowasm/models/schema.py}};
+
+      const baseTaskCode = {{PLACEHOLDER:src/pyowasm/tasks/base.py}};
+
+      const fastaParserCode = {{PLACEHOLDER:src/pyowasm/tasks/local/fasta_parser.py}};
+
+      const sequenceAnalyzerCode = {{PLACEHOLDER:src/pyowasm/tasks/local/sequence_analyzer.py}};
+
+      const statsCode = {{PLACEHOLDER:src/pyowasm/core/stats.py}};
+
+      const biowasmBridgeCode = {{PLACEHOLDER:src/pyowasm/bridge/biowasm.py}};
+
+      const seqtkTaskCode = {{PLACEHOLDER:src/pyowasm/tasks/wasm/seqtk.py}};
+
+      const orthologAnalyzerCode = {{PLACEHOLDER:src/pyowasm/tasks/wasm/ortholog_analyzer.py}};
+
+      const uiComponentsCode = {{PLACEHOLDER:src/pyowasm/ui/components.py}};
+
+      const appCode = {{PLACEHOLDER:src/pyowasm/app.py}};
+
+      stlite.mount(
+        {
+          requirements: ["biopython", "pandas", "seaborn", "matplotlib"],
+          entrypoint: "pyowasm/app.py",
+          files: {
+            "pyowasm/__init__.py": "",
+            "pyowasm/app.py": appCode,
+            "pyowasm/models/__init__.py": "",
+            "pyowasm/models/schema.py": schemaCode,
+            "pyowasm/tasks/__init__.py": "",
+            "pyowasm/tasks/base.py": baseTaskCode,
+            "pyowasm/tasks/local/__init__.py": "",
+            "pyowasm/tasks/local/fasta_parser.py": fastaParserCode,
+            "pyowasm/tasks/local/sequence_analyzer.py": sequenceAnalyzerCode,
+            "pyowasm/tasks/wasm/__init__.py": "",
+            "pyowasm/tasks/wasm/seqtk.py": seqtkTaskCode,
+            "pyowasm/tasks/wasm/ortholog_analyzer.py": orthologAnalyzerCode,
+            "pyowasm/core/__init__.py": "",
+            "pyowasm/core/stats.py": statsCode,
+            "pyowasm/bridge/__init__.py": "",
+            "pyowasm/bridge/biowasm.py": biowasmBridgeCode,
+            "pyowasm/ui/__init__.py": "",
+            "pyowasm/ui/components.py": uiComponentsCode,
+          },
+          streamlitConfig: {
+            "client.toolbarMode": "minimal",
+          },
+        },
+        document.getElementById("root")
+      );
+    </script>
+  </body>
+</html>

@@ -2,11 +2,15 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import asyncio
+import time
 from typing import List, Dict, Optional
 from ..models.schema import SequenceRecord
 from ..core.stats import get_identity_stats
 
 MAX_RBH_SCATTER_POINTS = 500
+
+# (render_rbh_plots, render_rbh_results は変更なし)
 
 def render_rbh_plots(rbh_df: pd.DataFrame) -> None:
     """
@@ -78,7 +82,7 @@ def render_rbh_results(rbh_df: pd.DataFrame) -> None:
     with st.expander("詳細データ一覧を表示"):
         st.dataframe(rbh_df)
 
-def render_analysis_mode() -> None:
+async def render_analysis_mode() -> None:
     """
     配列統計解析モードのUIを表示します。
     """
@@ -87,12 +91,19 @@ def render_analysis_mode() -> None:
 
     uploaded_file = st.file_uploader("FASTAファイルをアップロード", type=["fasta", "faa", "fastq"])
 
-    if uploaded_file:
-        from ..tasks.local.fasta_parser import FastaParserTask
-        from ..tasks.local.sequence_analyzer import SequenceAnalysisTask
-        from ..bridge.biowasm import bridge
+    if st.button("📊 解析を実行", use_container_width=True):
+        if uploaded_file:
+            # オーバーレイを表示
+            overlay = st.empty()
+            overlay.markdown("<style>#loading-overlay { display: flex !important; }</style>", unsafe_allow_html=True)
+            
+            # ブラウザに描画させるために一時停止
+            await asyncio.sleep(0.1)
+            
+            from ..tasks.local.fasta_parser import FastaParserTask
+            from ..tasks.local.sequence_analyzer import SequenceAnalysisTask
+            from ..bridge.biowasm import bridge
 
-        with st.status("Python (Wasm) で解析中...", expanded=True) as status:
             fasta_data = uploaded_file.getvalue().decode("utf-8")
             bridge.write_to_vfs("input.fasta", fasta_data)
 
@@ -102,19 +113,30 @@ def render_analysis_mode() -> None:
             analyzer = SequenceAnalysisTask()
             analysis_result = analyzer.run(parse_result.records)
 
-            status.update(label="解析完了!", state="complete")
+            # 結果を表示し、オーバーレイを消すためにリラン
+            st.session_state["analysis_result"] = analysis_result.records
+            overlay.empty()
+            st.rerun()
+        else:
+            st.warning("解析対象のファイルをアップロードしてください。")
 
-        display_sequence_stats(analysis_result.records)
+    if "analysis_result" in st.session_state:
+        display_sequence_stats(st.session_state["analysis_result"])
+
 
 async def render_seqtk_mode() -> None:
     """
     Seqtk実行モードのUIを表示します。
     """
-    st.subheader("🔧 Wasm ツール実行 (Seqtk)")
-    st.markdown(r"""
-    JS/Wasm ブリッジを介して、ブラウザ内で \`seqtk\` を直接実行します。
-    """)
+    st.subheader("🔧 Wasmツール (biowasm)")
+    st.info("JS/Wasm ブリッジを介して、ブラウザ内で seqtk を直接実行します。")
+
     from ..bridge.biowasm import bridge
+
+    if not bridge.is_available():
+        st.info(bridge.unavailable_message())
+        return
+
     uploaded_file = st.file_uploader("ファイルをアップロード", type=["fasta", "fastq"])
     vfs_path = "input.fasta"
     input_content = None
@@ -127,18 +149,20 @@ async def render_seqtk_mode() -> None:
 
 async def render_ortholog_mode() -> None:
     """
-    オーソログ解析デモモードのUIを表示します。
+    オーソログ解析モードのUIを表示します。
     """
-    st.subheader("🧪 コーヒー品種間オーソログ解析デモ")
-    st.markdown("""
-    アラビカ種 vs ロブスタ種。
-    Wasm 上で RBH 解析パイプラインを実行します。
-    """)
+    st.subheader("🧪 オーソログ解析 (RBH)")
+    st.info("Wasm 上で RBH 解析パイプラインを実行します。")
 
-    target_keywords = ["caffeine synthase", "methyltransferase", "xanthosine"]
-    st.caption(f"キーワード抽出（ハードコード）: {', '.join(target_keywords)}")
+    keyword_input = st.text_input(
+        "キーワード抽出用キーワード（カンマ区切り）",
+        value="caffeine synthase, methyltransferase, xanthosine",
+        help="解析対象の配列を絞り込むためのキーワード。カンマ区切りで入力してください。"
+    )
+    target_keywords = [k.strip() for k in keyword_input.split(",") if k.strip()]
 
     col_k, col_top = st.columns(2)
+
     with col_k:
         k_size = st.slider(
             "k-mer サイズ (k)",
@@ -152,61 +176,59 @@ async def render_ortholog_mode() -> None:
             help="k-mer スコア上位何件に精密アラインメントを実施するか。",
         )
 
-    input_method = st.radio("入力方法を選択:", ["サンプルテキスト", "FAAファイルをアップロード"], horizontal=True)
-
-    sample_a = """>arabica_P1 caffeine_synthase
-MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
->arabica_P2 coffee_aroma
-MAQTQGTRKVCYYYDRKGRRKSRKPRK"""
-    sample_b = """>robusta_P1 caffeine_synthase
-MEVEKVKVGVDGFGRIGRLVTRAAFNSGKVDIVAINDPFIDLNYM
->robusta_P3 unexpected_hit
-MAQTQGTRKVCYYYDRKGRRKSRK"""
-
+    st.write("### FAA ファイルをアップロード")
+    col1, col2 = st.columns(2)
     data_a, data_b = "", ""
+    with col1:
+        file_a = st.file_uploader("Species A の FAA ファイル", type=["faa", "fasta"])
+        if file_a:
+            data_a = file_a.getvalue().decode("utf-8")
+    with col2:
+        file_b = st.file_uploader("Species B の FAA ファイル", type=["faa", "fasta"])
+        if file_b:
+            data_b = file_b.getvalue().decode("utf-8")
 
-    if input_method == "サンプルテキスト":
-        col1, col2 = st.columns(2)
-        with col1:
-            data_a = st.text_area("Species A (Arabica) サンプル", sample_a, height=150)
-        with col2:
-            data_b = st.text_area("Species B (Robusta) サンプル", sample_b, height=150)
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            file_a = st.file_uploader("Species A の FAA ファイル", type=["faa", "fasta"])
-            if file_a:
-                data_a = file_a.getvalue().decode("utf-8")
-        with col2:
-            file_b = st.file_uploader("Species B の FAA ファイル", type=["faa", "fasta"])
-            if file_b:
-                data_b = file_b.getvalue().decode("utf-8")
-
-    if st.button("RBHパイプラインを実行"):
+    if st.button("🚀 RBHパイプラインを実行", use_container_width=True):
         if data_a and data_b:
+            # オーバーレイを表示
+            overlay = st.empty()
+            overlay.markdown("<style>#loading-overlay { display: flex !important; }</style>", unsafe_allow_html=True)
+
+            # ブラウザに描画させるために一時停止
+            await asyncio.sleep(0.1)
+
             from ..tasks.wasm.ortholog_analyzer import OrthologAnalysisTask
             task = OrthologAnalysisTask()
             try:
-                with st.status("RBH解析実行中...", expanded=True) as status:
-                    result = await task.run(
-                        data_a,
-                        data_b,
-                        keywords_a=target_keywords,
-                        keywords_b=target_keywords,
-                        k=k_size,
-                        top_n=top_n,
-                    )
-                    status.update(label="解析完了!", state="complete")
-                for warning_message in task.last_warnings:
-                    st.warning(warning_message)
-                if task.last_excluded_records:
-                    with st.expander("除外したレコード一覧を表示"):
-                        st.dataframe(pd.DataFrame(task.last_excluded_records))
-                render_rbh_results(result)
+                result = task.run(
+                    data_a,
+                    data_b,
+                    keywords_a=target_keywords,
+                    keywords_b=target_keywords,
+                    k=k_size,
+                    top_n=top_n,
+                )
+                
+                # 結果を保持（リランで消えないように）
+                st.session_state["ortholog_result"] = result
+                st.session_state["ortholog_warnings"] = task.last_warnings
+                st.session_state["ortholog_excluded"] = task.last_excluded_records
+                
+                # オーバーレイを消すためにリラン
+                overlay.empty()
+                st.rerun()
             except Exception as e:
                 st.error(f"RBH解析でエラーが発生しました: {e}")
         else:
             st.warning("両方の入力データが必要です。")
+
+    if "ortholog_result" in st.session_state:
+        for warning_message in st.session_state.get("ortholog_warnings", []):
+            st.warning(warning_message)
+        if st.session_state.get("ortholog_excluded"):
+            with st.expander("除外したレコード一覧を表示"):
+                st.dataframe(pd.DataFrame(st.session_state["ortholog_excluded"]))
+        render_rbh_results(st.session_state["ortholog_result"])
 
 def display_sequence_stats(records: List[SequenceRecord]) -> None:
     """
@@ -252,32 +274,92 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     Args:
         input_filename (str): 入力ファイルのパス（VFS内）。
     """
-    st.divider()
-    st.header("🛠️ Wasm Tools (biowasm)")
-    st.write(f"VFS内のファイルを処理します: \\`{input_filename}\\`")
 
     tool_options = ["seqtk"]
     selected_tool = st.selectbox("ツールを選択", tool_options)
 
-    if selected_tool == "seqtk":
-        command = st.text_input("コマンド引数", value="seq -a")
-        
-        result_container = st.container()
-        
-        if st.button("Wasmで実行"):
-            from ..tasks.wasm.seqtk import SeqtkTask
-            
-            try:
-                task = SeqtkTask()
-                with st.spinner(f"{selected_tool} を実行中..."):
-                    # 直接 await を使用して結果を待機する
-                    result = await task.run(input_filename, command, input_content=input_content)
 
+    is_busy = st.session_state.get("is_processing", False) or st.session_state.get("pyowasm_seqtk_job_id") is not None
+
+    result_key = "pyowasm_seqtk_last_result"
+
+    if selected_tool == "seqtk":
+        from ..tasks.wasm.seqtk import SeqtkTask
+
+        col_cmd, col_to = st.columns([3, 1])
+        with col_cmd:
+            command = st.text_input("コマンド引数", value="seq -a")
+        with col_to:
+            polling_timeout = st.number_input(
+                "タイムアウト(秒)", 
+                min_value=10, 
+                max_value=600, 
+                value=60,
+                help="Wasmジョブの最大待機時間。"
+            )
+
+        result_container = st.container()
+
+        job_key = "pyowasm_seqtk_job_id"
+        job_start_time_key = "pyowasm_seqtk_job_start_time"
+        task = SeqtkTask()
+
+        if st.button("🚀 Wasmで実行", key="pyowasm_seqtk_run", use_container_width=True, disabled=is_busy):
+            # 新しい実行の前に過去の結果をクリア
+            if result_key in st.session_state:
+                del st.session_state[result_key]
+                
+            job_id = task.start(input_filename, command, input_content=input_content)
+            if job_id.startswith("ERROR:"):
                 with result_container:
-                    task.render(result)
-            except Exception as e:
-                with result_container:
-                    st.error(f"実行エラー: {str(e)}")
+                    st.error(job_id.replace("ERROR:", "", 1).strip())
+            else:
+                st.session_state[job_key] = job_id
+                st.session_state[job_start_time_key] = time.time()
+                # 実行開始時にオーバーレイを表示
+                st.markdown("<style>#loading-overlay { display: flex !important; }</style>", unsafe_allow_html=True)
+                await asyncio.sleep(0.1)
+                st.rerun()
+
+        current_job_id = st.session_state.get(job_key)
+        if current_job_id:
+            # ポーリングループ
+            while True:
+                elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
+                
+                if elapsed > polling_timeout:
+                    with result_container:
+                        st.error(f"⌛ 処理がタイムアウトしました ({polling_timeout}秒)。大きなファイルの場合は、ブラウザのメモリ制限やWasmの性能制限に達した可能性があります。")
+                    task.cleanup(str(current_job_id))
+                    del st.session_state[job_key]
+                    if job_start_time_key in st.session_state:
+                        del st.session_state[job_start_time_key]
+                    st.rerun()
+                    break
+
+                status = task.poll(str(current_job_id))
+                if status["status"] == "running":
+                    with result_container:
+                        # 画面上の進捗表示
+                        st.info(f"⏳ seqtk 実行中です... ({elapsed:.1f}秒経過)")
+                    # オーバーレイを確実に表示
+                    st.markdown("<style>#loading-overlay { display: flex !important; }</style>", unsafe_allow_html=True)
+                    await asyncio.sleep(0.5)
+                else:
+                    # 完了
+                    st.session_state[result_key] = status["result"]
+                    task.cleanup(str(current_job_id))
+                    del st.session_state[job_key]
+                    if job_start_time_key in st.session_state:
+                        del st.session_state[job_start_time_key]
+                    # オーバーレイを消すためにリラン
+                    st.rerun()
+                    break
+
+        # 保存された結果がある場合は表示
+        if result_key in st.session_state:
+            with result_container:
+                task.render(st.session_state[result_key])
 
 def display_header() -> None:
     """
@@ -286,8 +368,3 @@ def display_header() -> None:
     st.title("🧬 Pyowasm")
     st.caption("Python × WebAssembly × Bioinformatics")
 
-    st.markdown("""
-    ### 🚀 ブラウザが次世代の解析プラットフォームになる
-    **Pyowasm** は、環境構築不要のバイオ解析環境です。
-    Pythonの柔軟性と、Wasm host（stlite/Pyodide）のポータビリティ、そしてクラウドAPIを統合します。
-    """)

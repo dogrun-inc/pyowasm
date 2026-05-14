@@ -111,7 +111,7 @@ def test_render_ortholog_mode_faa_upload_executes_task(monkeypatch):
             self.last_excluded_records = []
             self.called = False
 
-        async def run(self, sample_a, sample_b, keywords_a=None, keywords_b=None, k=4, top_n=20):
+        def run(self, sample_a, sample_b, keywords_a=None, keywords_b=None, k=4, top_n=20):
             self.called = True
             assert ">a1" in sample_a
             assert ">b1" in sample_b
@@ -131,34 +131,29 @@ def test_render_ortholog_mode_faa_upload_executes_task(monkeypatch):
 
     with patch("pyowasm.ui.components.st") as mock_st:
         mock_st.slider.side_effect = [4, 20]
-        mock_st.radio.return_value = "FAAファイルをアップロード"
+        # input_method (radio) は削除されたため、side_effect から除外。
+        # 代わりに text_input (キーワード) が呼ばれる。
+        mock_st.text_input.return_value = "caffeine, methyltransferase"
         mock_st.file_uploader.side_effect = [
             _FakeUpload(">a1\nACDE\n"),
             _FakeUpload(">b1\nACDE\n"),
         ]
         mock_st.button.return_value = True
         mock_st.columns.side_effect = [
-            _context_columns(2),
-            _context_columns(2),
+            _context_columns(2), # col_k, col_top
+            _context_columns(2), # col1, col2 (file upload)
         ]
-        status = MagicMock()
-        status.__enter__.return_value = status
-        status.__exit__.return_value = False
-        mock_st.status.return_value = status
+        # st.status は削除されたため、mock_st.status は不要
 
         asyncio.run(render_ortholog_mode())
 
         assert fake_task.called
-        status.update.assert_called_once()
 
 
 def test_render_ortholog_mode_faa_upload_requires_both_files(monkeypatch):
     class FakeTask:
-        async def run(self, *args, **kwargs):
+        def run(self, *args, **kwargs):
             raise AssertionError("run should not be called when one file is missing")
-
-        def render(self, result):
-            raise AssertionError("render should not be called when one file is missing")
 
     monkeypatch.setattr(
         "pyowasm.tasks.wasm.ortholog_analyzer.OrthologAnalysisTask",
@@ -167,7 +162,7 @@ def test_render_ortholog_mode_faa_upload_requires_both_files(monkeypatch):
 
     with patch("pyowasm.ui.components.st") as mock_st:
         mock_st.slider.side_effect = [4, 20]
-        mock_st.radio.return_value = "FAAファイルをアップロード"
+        mock_st.text_input.return_value = "caffeine"
         mock_st.file_uploader.side_effect = [
             _FakeUpload(">a1\nACDE\n"),
             None,
