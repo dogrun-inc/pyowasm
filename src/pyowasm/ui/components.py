@@ -286,7 +286,17 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
     if selected_tool == "seqtk":
         from ..tasks.wasm.seqtk import SeqtkTask
 
-        command = st.text_input("コマンド引数", value="seq -a")
+        col_cmd, col_to = st.columns([3, 1])
+        with col_cmd:
+            command = st.text_input("コマンド引数", value="seq -a")
+        with col_to:
+            polling_timeout = st.number_input(
+                "タイムアウト(秒)", 
+                min_value=10, 
+                max_value=600, 
+                value=60,
+                help="Wasmジョブの最大待機時間。"
+            )
 
         result_container = st.container()
 
@@ -313,14 +323,13 @@ async def display_biowasm_ui(input_filename: str, input_content: Optional[str] =
 
         current_job_id = st.session_state.get(job_key)
         if current_job_id:
-            # ポーリングループ（タイムアウト設定: 60秒）
-            POLLING_TIMEOUT = 60.0
+            # ポーリングループ
             while True:
                 elapsed = time.time() - st.session_state.get(job_start_time_key, time.time())
                 
-                if elapsed > POLLING_TIMEOUT:
+                if elapsed > polling_timeout:
                     with result_container:
-                        st.error(f"⌛ 処理がタイムアウトしました ({POLLING_TIMEOUT}秒)。大きなファイルの場合は、ブラウザのメモリ制限やWasmの性能制限に達した可能性があります。")
+                        st.error(f"⌛ 処理がタイムアウトしました ({polling_timeout}秒)。大きなファイルの場合は、ブラウザのメモリ制限やWasmの性能制限に達した可能性があります。")
                     task.cleanup(str(current_job_id))
                     del st.session_state[job_key]
                     if job_start_time_key in st.session_state:

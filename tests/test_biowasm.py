@@ -154,6 +154,7 @@ async def test_display_biowasm_ui_renders_controls_when_idle(biowasm_modules):
          patch.object(components.st, "write") as mock_write, \
          patch.object(components.st, "selectbox", return_value="seqtk") as mock_selectbox, \
          patch.object(components.st, "text_input", return_value="seq -a") as mock_text_input, \
+         patch.object(components.st, "number_input", return_value=60) as mock_number_input, \
          patch.object(components.st, "container", return_value=MagicMock()) as mock_container, \
          patch.object(components.st, "button", return_value=False) as mock_button:
         await components.display_biowasm_ui("/tmp/input.fasta")
@@ -162,6 +163,7 @@ async def test_display_biowasm_ui_renders_controls_when_idle(biowasm_modules):
     mock_header.assert_not_called()
     mock_selectbox.assert_called_once_with("ツールを選択", ["seqtk"])
     mock_text_input.assert_called_once_with("コマンド引数", value="seq -a")
+    mock_number_input.assert_called_once()
     mock_container.assert_called_once()
     # ボタン名が「🚀 Wasmで実行」に変更された
     mock_button.assert_called_once_with("🚀 Wasmで実行", key="pyowasm_seqtk_run", use_container_width=True, disabled=False)
@@ -183,6 +185,7 @@ async def test_display_biowasm_ui_runs_seqtk_and_renders_result(biowasm_modules)
          patch.object(components.st, "write"), \
          patch.object(components.st, "selectbox", return_value="seqtk"), \
          patch.object(components.st, "text_input", return_value="seq -A"), \
+         patch.object(components.st, "number_input", return_value=60), \
          patch.object(components.st, "container", return_value=result_container), \
          patch.object(components.st, "button", side_effect=[True, False]), \
          patch.object(components.st, "rerun"), \
