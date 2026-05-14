@@ -38,9 +38,12 @@ def to_js_string_raw(content: str, pretty: bool = False) -> str:
         quoted_lines = ",\n".join(
             f"  {json.dumps(line, ensure_ascii=False)}" for line in lines
         )
-        return f"[\n{quoted_lines}\n].join(\"\\n\")"
+        js_code = f"[\n{quoted_lines}\n].join(\"\\n\")"
+    else:
+        js_code = json.dumps(content, ensure_ascii=False)
 
-    return json.dumps(content, ensure_ascii=False)
+    # HTML 内の <script> タグを壊さないようにエスケープする
+    return js_code.replace("</script>", "<\\/script>")
 
 
 def replace_placeholder(match: re.Match, pretty: bool = False) -> str:
@@ -91,7 +94,8 @@ def main() -> None:
         sys.exit(1)
 
     output = PLACEHOLDER_RE.sub(lambda match: replace_placeholder(match, pretty=args.pretty), template)
-    output = GENERATED_HEADER + output
+    if not args.pretty:
+        output = GENERATED_HEADER + output
 
     OUTPUT_PATH.write_text(output, encoding="utf-8")
     print(f"[OK] 生成完了: {OUTPUT_PATH}")

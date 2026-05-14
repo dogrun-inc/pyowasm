@@ -62,10 +62,14 @@ http://localhost:8000/
 #### 方法 2: 開発環境での実行 / Running in Development
 
 Python 実装のデバッグ目的で、Streamlit でアプリケーションを実行できます。  
-**注意**: 開発環境では Wasm を使用することはできません。  
+**注意**: 開発環境では以下の制限があります：
+- WebAssembly (Wasm) ツールを使用することはできません。
+- 解析実行中のローディングオーバーレイ（画面全体のスピナー）は表示されません。
 
 You can run the application with Streamlit for debugging Python implementation.
-Note: WebAssembly is not available in the development environment.
+Note: The following limitations apply in the development environment:
+- WebAssembly (Wasm) is not available.
+- The loading overlay (full-screen spinner) during analysis will not be displayed.
 
 ```bash
 # Streamlit アプリケーション起動
