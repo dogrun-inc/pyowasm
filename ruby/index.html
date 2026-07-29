@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>pyowasm ruby wasm</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@ruby/wasm-wasi/dist/esm/browser.js": "https://cdn.jsdelivr.net/npm/@ruby/wasm-wasi@2.9.3-2.9.4/dist/esm/browser.js",
+          "@bjorn3/browser_wasi_shim": "https://cdn.jsdelivr.net/npm/@bjorn3/browser_wasi_shim@0.4.2/dist/index.js",
+          "pycall-lite": "https://cdn.jsdelivr.net/npm/pycall-lite@0.1.0/dist/index.js",
+          "pyodide": "https://cdn.jsdelivr.net/npm/pyodide@314.0.2/pyodide.mjs"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import { DefaultRubyVM } from "@ruby/wasm-wasi/dist/esm/browser.js";
+      import { loadPyodide } from "pyodide";
+      import { setupPyCall } from "pycall-lite";
+
+      const pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/npm/pyodide@314.0.2/" });
+      const wasmUrl = "https://cdn.jsdelivr.net/npm/@ruby/3.3-wasm-wasi@2.9.3-2.9.4/dist/ruby+stdlib.wasm";
+      const wasmBinary = await fetch(wasmUrl).then((r) => r.arrayBuffer());
+      const rubyModule = await WebAssembly.compile(wasmBinary);
+      const { vm } = await DefaultRubyVM(rubyModule);
+      setupPyCall(vm, pyodide);
+
+      const rubyCode = await fetch("./ortholog.rb").then((response) => response.text());
+      vm.eval(rubyCode);
+    </script>
+  </body>
+</html>
